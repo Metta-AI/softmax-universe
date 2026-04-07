@@ -96,7 +96,7 @@ def create_db():
             notes TEXT DEFAULT '',
             pred_policy_id INTEGER REFERENCES policies(id),
             preferences TEXT DEFAULT '{}',
-            status TEXT NOT NULL DEFAULT 'pending',
+            status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'placed', 'rejected')),
             created_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
 
@@ -104,15 +104,21 @@ def create_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             policy_id INTEGER NOT NULL REFERENCES policies(id),
             league_id INTEGER NOT NULL REFERENCES leagues(id),
-            division_id INTEGER REFERENCES divisions(id),
+            division_id INTEGER NOT NULL REFERENCES divisions(id),
+            submission_id INTEGER REFERENCES submissions(id),
             notes TEXT DEFAULT '',
             created_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
 
-        CREATE TABLE placement_results (
+        CREATE TABLE division_policy_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            placement_id INTEGER NOT NULL REFERENCES placements(id),
-            division_id INTEGER NOT NULL REFERENCES divisions(id),
+            policy_id INTEGER NOT NULL REFERENCES policies(id),
+            league_id INTEGER NOT NULL REFERENCES leagues(id),
+            from_division_id INTEGER REFERENCES divisions(id),
+            to_division_id INTEGER NOT NULL REFERENCES divisions(id),
+            placement_id INTEGER REFERENCES placements(id),
+            submission_id INTEGER REFERENCES submissions(id),
+            change_type TEXT NOT NULL DEFAULT 'placement' CHECK(change_type IN ('placement', 'move')),
             notes TEXT DEFAULT '',
             created_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
@@ -329,49 +335,56 @@ def create_db():
     )
 
     submissions = [
-        (1, 1, "2026-04-01 10:00:00", "Initial submission", None, '{"map_size": "large"}'),
-        (2, 1, "2026-04-01 11:00:00", "Defensive variant", 1, '{}'),
-        (3, 1, "2026-04-02 09:00:00", "", None, '{"timeout": 30}'),
-        (5, 2, "2026-04-02 14:00:00", "Testing blitz on clones", None, '{}'),
-        (6, 3, "2026-04-03 08:00:00", "Swarm v2 for four-score", None, '{"team_size": 4}'),
-        (8, 1, "2026-04-03 12:00:00", "Sniper counter-meta", 1, '{}'),
-        (9, 4, "2026-04-04 10:00:00", "", None, '{}'),
-        (1, 2, "2026-04-05 09:00:00", "Updated alpha for clones", None, '{"clone_count": 3}'),
-        (10, 6, "2026-04-05 15:00:00", "Championship entry", None, '{}'),
+        (1, 1, "2026-04-01 10:00:00", "Initial submission", None, '{"map_size": "large"}', "placed"),
+        (2, 1, "2026-04-01 11:00:00", "Defensive variant", 1, '{}', "placed"),
+        (3, 1, "2026-04-02 09:00:00", "", None, '{"timeout": 30}', "placed"),
+        (5, 2, "2026-04-02 14:00:00", "Testing blitz on clones", None, '{}', "placed"),
+        (6, 3, "2026-04-03 08:00:00", "Swarm v2 for four-score", None, '{"team_size": 4}', "placed"),
+        (8, 1, "2026-04-03 12:00:00", "Sniper counter-meta", 1, '{}', "placed"),
+        (9, 4, "2026-04-04 10:00:00", "", None, '{}', "placed"),
+        (1, 2, "2026-04-05 09:00:00", "Updated alpha for clones", None, '{"clone_count": 3}', "pending"),
+        (10, 6, "2026-04-05 15:00:00", "Championship entry", None, '{}', "placed"),
     ]
     c.executemany(
-        "INSERT INTO submissions (policy_id, league_id, timestamp, notes, pred_policy_id, preferences) VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO submissions (policy_id, league_id, timestamp, notes, pred_policy_id, preferences, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
         submissions,
     )
 
     placements = [
-        (1, 1, 1, "Placed into Carbon"),
-        (2, 1, 2, "Placed into Oxygen"),
-        (3, 1, 1, ""),
-        (5, 2, 3, "Placed into Silicon"),
-        (6, 3, 4, ""),
-        (8, 1, 1, "Sniper placed Carbon"),
-        (9, 4, 6, "Pro league entry"),
-        (10, 6, 9, "Championship Carbon"),
+        (1, 1, 1, 1, "Placed into Carbon"),
+        (2, 1, 2, 2, "Placed into Oxygen"),
+        (3, 1, 1, 3, ""),
+        (5, 2, 3, 4, "Placed into Silicon"),
+        (6, 3, 4, 5, ""),
+        (8, 1, 1, 6, "Sniper placed Carbon"),
+        (9, 4, 6, 7, "Pro league entry"),
+        (10, 6, 9, 9, "Championship Carbon"),
+        (4, 1, 1, None, "Preseason commissioner invite"),
     ]
     c.executemany(
-        "INSERT INTO placements (policy_id, league_id, division_id, notes) VALUES (?, ?, ?, ?)",
+        "INSERT INTO placements (policy_id, league_id, division_id, submission_id, notes) VALUES (?, ?, ?, ?, ?)",
         placements,
     )
 
-    placement_results = [
-        (1, 1),   # placement 1 → Carbon
-        (2, 2),   # placement 2 → Oxygen
-        (3, 1),   # placement 3 → Carbon
-        (4, 3),   # placement 4 → Silicon
-        (5, 4),   # placement 5 → Carbon (Four-Score)
-        (6, 1),   # placement 6 → Carbon
-        (7, 6),   # placement 7 → Carbon (Pro League)
-        (8, 9),   # placement 8 → Carbon (Championship)
+    division_policy_history = [
+        (1, 1, None, 1, 1, 1, "placement", "Accepted from submission #1"),
+        (2, 1, None, 2, 2, 2, "placement", "Accepted from submission #2"),
+        (3, 1, None, 1, 3, 3, "placement", "Accepted from submission #3"),
+        (5, 2, None, 3, 4, 4, "placement", "Accepted from submission #4"),
+        (6, 3, None, 4, 5, 5, "placement", "Accepted from submission #5"),
+        (8, 1, None, 1, 6, 6, "placement", "Accepted from submission #6"),
+        (9, 4, None, 6, 7, 7, "placement", "Initial Pro League placement"),
+        (9, 4, 6, 7, None, None, "move", "Promoted from Carbon to Oxygen"),
+        (10, 6, None, 9, 8, 9, "placement", "Accepted from submission #9"),
+        (4, 1, None, 1, 9, None, "placement", "Commissioner invite without submission"),
     ]
     c.executemany(
-        "INSERT INTO placement_results (placement_id, division_id) VALUES (?, ?)",
-        placement_results,
+        """
+        INSERT INTO division_policy_history (
+            policy_id, league_id, from_division_id, to_division_id, placement_id, submission_id, change_type, notes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        division_policy_history,
     )
 
     player_league_memberships = [
@@ -533,13 +546,13 @@ def create_db():
     division_policies = [
         (1, 1, 1), (1, 4, 0), (1, 8, 0), (1, 3, 0),   # Base Carbon (AlphaStrike champion)
         (2, 2, 0), (2, 5, 1), (2, 9, 0),                 # Base Oxygen (Blitz-v3 champion)
-        (3, 3, 0), (3, 7, 0), (3, 11, 1),                # Clones Silicon (FlankerPro champion)
+        (3, 3, 0), (3, 5, 0), (3, 7, 0), (3, 11, 1),     # Clones Silicon (FlankerPro champion)
         (4, 2, 0), (4, 5, 0), (4, 6, 1),                 # Four-Score Carbon (SwarmAI champion)
         (5, 9, 0),                                         # Four-Score Germanium
         (6, 1, 1), (6, 6, 0), (6, 8, 0), (6, 11, 0),   # Pro League Carbon (AlphaStrike champion)
-        (7, 4, 0), (7, 7, 0), (7, 10, 1),                # Pro League Oxygen (ScoutRush champion)
+        (7, 4, 0), (7, 7, 0), (7, 9, 0), (7, 10, 1),     # Pro League Oxygen (ScoutRush champion)
         (8, 10, 0),                                        # Casual Silicon
-        (9, 1, 0), (9, 8, 1), (9, 9, 0), (9, 11, 0),   # Championship Carbon (SniperBot champion)
+        (9, 1, 0), (9, 8, 1), (9, 9, 0), (9, 10, 0), (9, 11, 0),   # Championship Carbon (SniperBot champion)
     ]
     c.executemany("INSERT INTO division_policies (division_id, policy_id, is_champion) VALUES (?, ?, ?)", division_policies)
 

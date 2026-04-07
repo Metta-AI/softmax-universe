@@ -186,26 +186,31 @@ class Handler(SimpleHTTPRequestHandler):
             return query("""
                 SELECT pl.*, pol.name as policy_name, l.name as league_name,
                        g.name as game_name, p.name as player_name, p.id as player_id,
-                       d.name as division_name, d.level as division_level
+                       d.name as division_name, d.level as division_level,
+                       s.status as submission_status, s.timestamp as submission_timestamp
                 FROM placements pl
                 JOIN policies pol ON pl.policy_id = pol.id
                 JOIN players p ON pol.player_id = p.id
                 JOIN leagues l ON pl.league_id = l.id
                 JOIN games g ON l.game_id = g.id
+                LEFT JOIN submissions s ON pl.submission_id = s.id
                 LEFT JOIN divisions d ON pl.division_id = d.id
+                ORDER BY pl.created_at DESC, pl.id DESC
             """)
-        if path == "/api/placement_results":
+        if path == "/api/division_policy_history":
             return query("""
-                SELECT pr.*, p.id as placement_id,
-                       d.name as division_name, d.level as division_level,
-                       l.name as league_name, pol.name as policy_name,
-                       pl.name as player_name, pl.id as player_id
-                FROM placement_results pr
-                JOIN placements p ON pr.placement_id = p.id
-                JOIN divisions d ON pr.division_id = d.id
-                JOIN leagues l ON p.league_id = l.id
-                JOIN policies pol ON p.policy_id = pol.id
+                SELECT dph.*, pol.name as policy_name,
+                       pl.name as player_name, pl.id as player_id,
+                       l.name as league_name,
+                       from_d.name as from_division_name, from_d.level as from_division_level,
+                       to_d.name as to_division_name, to_d.level as to_division_level
+                FROM division_policy_history dph
+                JOIN policies pol ON dph.policy_id = pol.id
                 JOIN players pl ON pol.player_id = pl.id
+                JOIN leagues l ON dph.league_id = l.id
+                LEFT JOIN divisions from_d ON dph.from_division_id = from_d.id
+                JOIN divisions to_d ON dph.to_division_id = to_d.id
+                ORDER BY dph.created_at DESC, dph.id DESC
             """)
         if path == "/api/player_league_memberships":
             return query("""
@@ -303,10 +308,13 @@ class Handler(SimpleHTTPRequestHandler):
             return query("""
                 SELECT dp.*,
                        d.name as division_name,
+                       d.league_id,
+                       l.name as league_name,
                        pol.name as policy_name,
                        pl.name as player_name
                 FROM division_policies dp
                 JOIN divisions d ON dp.division_id = d.id
+                JOIN leagues l ON d.league_id = l.id
                 JOIN policies pol ON dp.policy_id = pol.id
                 JOIN players pl ON pol.player_id = pl.id
             """)
@@ -403,24 +411,59 @@ class Handler(SimpleHTTPRequestHandler):
                 conn.close()
                 return {"error": "division must belong to submission league"}
 
+            current_membership = conn.execute("""
+                SELECT dp.division_id
+                FROM division_policies dp
+                JOIN divisions d ON dp.division_id = d.id
+                WHERE dp.policy_id = ? AND d.league_id = ?
+                ORDER BY d.level DESC, dp.division_id
+                LIMIT 1
+            """, (sub["policy_id"], sub["league_id"])).fetchone()
+            from_division_id = current_membership["division_id"] if current_membership else None
+
             cur = conn.execute(
-                "INSERT INTO placements (policy_id, league_id, division_id, notes) VALUES (?, ?, ?, ?)",
-                (sub["policy_id"], sub["league_id"], division_id, f"From submission #{sub_id}"),
+                "INSERT INTO placements (policy_id, league_id, division_id, submission_id, notes) VALUES (?, ?, ?, ?, ?)",
+                (sub["policy_id"], sub["league_id"], division_id, sub_id, f"From submission #{sub_id}"),
             )
             pl_id = cur.lastrowid
-            conn.execute(
-                "INSERT INTO placement_results (placement_id, division_id) VALUES (?, ?)",
-                (pl_id, division_id),
-            )
-            existing_membership = conn.execute(
-                "SELECT 1 FROM division_policies WHERE division_id=? AND policy_id=?",
-                (division_id, sub["policy_id"]),
-            ).fetchone()
-            if not existing_membership:
+
+            memberships_in_league = conn.execute("""
+                SELECT dp.division_id
+                FROM division_policies dp
+                JOIN divisions d ON dp.division_id = d.id
+                WHERE dp.policy_id = ? AND d.league_id = ?
+            """, (sub["policy_id"], sub["league_id"])).fetchall()
+            current_division_ids = {row["division_id"] for row in memberships_in_league}
+            for current_division_id in current_division_ids:
+                if current_division_id == division_id:
+                    continue
+                conn.execute(
+                    "DELETE FROM division_policies WHERE division_id = ? AND policy_id = ?",
+                    (current_division_id, sub["policy_id"]),
+                )
+
+            if division_id not in current_division_ids:
                 conn.execute(
                     "INSERT INTO division_policies (division_id, policy_id) VALUES (?, ?)",
                     (division_id, sub["policy_id"]),
                 )
+
+            if from_division_id != division_id:
+                conn.execute("""
+                    INSERT INTO division_policy_history (
+                        policy_id, league_id, from_division_id, to_division_id, placement_id, submission_id, change_type, notes
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    sub["policy_id"],
+                    sub["league_id"],
+                    from_division_id,
+                    division_id,
+                    pl_id,
+                    sub_id,
+                    "placement" if from_division_id is None else "move",
+                    f"Recorded from submission #{sub_id}",
+                ))
+
             conn.execute("UPDATE submissions SET status='placed' WHERE id=?", (sub_id,))
             conn.commit()
             conn.close()
