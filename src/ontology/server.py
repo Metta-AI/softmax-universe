@@ -63,6 +63,44 @@ def mutate(sql, params=()):
     return last_id
 
 
+def quote_identifier(name):
+    return '"' + name.replace('"', '""') + '"'
+
+
+def read_schema():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    tables = []
+    table_names = conn.execute("""
+        SELECT name
+        FROM sqlite_master
+        WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
+        ORDER BY name
+    """).fetchall()
+
+    for table_row in table_names:
+        table_name = table_row["name"]
+        quoted_name = quote_identifier(table_name)
+        columns = [dict(row) for row in conn.execute(f"PRAGMA table_info({quoted_name})").fetchall()]
+        columns_by_name = {column["name"]: column for column in columns}
+        foreign_keys = []
+        for fk in conn.execute(f"PRAGMA foreign_key_list({quoted_name})").fetchall():
+            foreign_key = dict(fk)
+            column = columns_by_name.get(foreign_key["from"], {})
+            foreign_key["optional"] = not bool(column.get("notnull") or column.get("pk"))
+            foreign_keys.append(foreign_key)
+        row_count = conn.execute(f"SELECT COUNT(*) AS count FROM {quoted_name}").fetchone()["count"]
+        tables.append({
+            "name": table_name,
+            "row_count": row_count,
+            "columns": columns,
+            "foreign_keys": foreign_keys,
+        })
+
+    conn.close()
+    return {"tables": tables}
+
+
 class Handler(SimpleHTTPRequestHandler):
     def do_GET(self):
         path = urlparse(self.path).path
@@ -85,6 +123,8 @@ class Handler(SimpleHTTPRequestHandler):
             self.wfile.write(f.read())
 
     def handle_api(self, path):
+        if path == "/api/schema":
+            return read_schema()
         if path == "/api/commissioners":
             return query("SELECT * FROM commissioners")
         if path == "/api/users":
