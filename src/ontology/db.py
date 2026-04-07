@@ -207,28 +207,6 @@ def create_db():
             created_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
 
-        CREATE TABLE rank_users (
-            league_id INTEGER NOT NULL REFERENCES leagues(id),
-            user_id INTEGER NOT NULL REFERENCES users(id),
-            timestamp TEXT NOT NULL DEFAULT (datetime('now')),
-            rank INTEGER NOT NULL,
-            division_id INTEGER REFERENCES divisions(id),
-            notes TEXT DEFAULT '',
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            PRIMARY KEY (league_id, user_id, timestamp)
-        );
-
-        CREATE TABLE rank_players (
-            league_id INTEGER NOT NULL REFERENCES leagues(id),
-            player_id INTEGER NOT NULL REFERENCES players(id),
-            timestamp TEXT NOT NULL DEFAULT (datetime('now')),
-            rank INTEGER NOT NULL,
-            division_id INTEGER REFERENCES divisions(id),
-            notes TEXT DEFAULT '',
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            PRIMARY KEY (league_id, player_id, timestamp)
-        );
-
         CREATE TABLE rank_policies (
             league_id INTEGER NOT NULL REFERENCES leagues(id),
             policy_id INTEGER NOT NULL REFERENCES policies(id),
@@ -397,11 +375,11 @@ def create_db():
     )
 
     player_league_memberships = [
-        (1, 1, 1), (1, 2, 0),  # daveey in Base (champion), Clones
+        (1, 1, 1), (1, 2, 0),  # daveey in Base (avatar), Clones
         (2, 1, 0),               # daveey_alt in Base
-        (3, 1, 0), (3, 3, 1),  # emmett_main in Base, Four-Score (champion)
+        (3, 1, 0), (3, 3, 1),  # emmett_main in Base, Four-Score (avatar)
         (4, 4, 0),               # emmett_v2 in Pro League
-        (5, 1, 0), (5, 6, 1),  # relh in Base, Championship (champion)
+        (5, 1, 0), (5, 6, 1),  # relh in Base, Championship (avatar)
         (6, 5, 0),               # relh_smurf in Casual
     ]
     c.executemany(
@@ -522,31 +500,6 @@ def create_db():
     c.executemany(
         "INSERT INTO rounds (division_id, notes, results) VALUES (?, ?, ?)",
         rounds,
-    )
-
-    rank_users = [
-        (1, 1, "2026-04-01 12:00:00", 1, 1),
-        (1, 2, "2026-04-01 12:00:00", 2, 1),
-        (1, 3, "2026-04-01 12:00:00", 3, 2),
-        (2, 1, "2026-04-02 12:00:00", 2, 3),
-        (2, 2, "2026-04-02 12:00:00", 1, 3),
-    ]
-    c.executemany(
-        "INSERT INTO rank_users (league_id, user_id, timestamp, rank, division_id) VALUES (?, ?, ?, ?, ?)",
-        rank_users,
-    )
-
-    rank_players = [
-        (1, 1, "2026-04-01 12:00:00", 1, 1),
-        (1, 2, "2026-04-01 12:00:00", 3, 2),
-        (1, 3, "2026-04-01 12:00:00", 2, 1),
-        (1, 5, "2026-04-01 12:00:00", 4, 2),
-        (2, 3, "2026-04-02 12:00:00", 1, 3),
-        (2, 4, "2026-04-02 12:00:00", 2, 3),
-    ]
-    c.executemany(
-        "INSERT INTO rank_players (league_id, player_id, timestamp, rank, division_id) VALUES (?, ?, ?, ?, ?)",
-        rank_players,
     )
 
     rank_policies = [

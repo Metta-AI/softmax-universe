@@ -26,7 +26,7 @@ Set `ONTOLOGY_PORT` to change the port.
 
 - **Users** own **Players**, who create **Policies** (bots)
 - **Games** have **Mods** and **Variants**
-- **Leagues** contain **Divisions** and **Pools**
-- **Submissions** flow through placement into divisions
+- **Leagues** contain **Divisions**
+- **Submissions** flow through placement into policy/division memberships
 - **Episodes** and **Rounds** track match results
-- **Rankings** track user/player/policy standings per league
+- **Rankings** store policy standings; player and user rankings are derived from the best policy rank per league/division snapshot
