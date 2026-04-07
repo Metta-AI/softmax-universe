@@ -327,6 +327,9 @@
     <div class="nav-item" data-view="games">
       <span class="icon">◆</span> Games <span class="badge" id="badge-games">-</span>
     </div>
+    <div class="nav-item" data-view="mods">
+      <span class="icon">⬢</span> Mods <span class="badge" id="badge-mods">-</span>
+    </div>
     <div class="nav-item" data-view="leagues">
       <span class="icon">▥</span> Leagues <span class="badge" id="badge-leagues">-</span>
     </div>
@@ -368,6 +371,7 @@ async function fetchAll() {
   document.getElementById('badge-users').textContent = state.users.length;
 
   document.getElementById('badge-games').textContent = state.games.length;
+  document.getElementById('badge-mods').textContent = state.mods.length;
   document.getElementById('badge-submissions').textContent = state.submissions.length;
   document.getElementById('badge-placements').textContent = state.placements.length;
   document.getElementById('badge-leagues').textContent = state.leagues.length;
