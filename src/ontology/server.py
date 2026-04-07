@@ -11,6 +11,39 @@ DATA_DIR = os.path.join(os.path.expanduser("~"), ".softmax-universe")
 DB_PATH = os.path.join(DATA_DIR, "ontology.db")
 UI_PATH = os.path.join(os.path.dirname(__file__), "ui.html")
 
+RANK_PLAYERS_SQL = """
+    WITH best_player_ranks AS (
+        SELECT rp.league_id, rp.division_id, rp.timestamp, pol.player_id, MIN(rp.rank) AS rank
+        FROM rank_policies rp
+        JOIN policies pol ON rp.policy_id = pol.id
+        GROUP BY rp.league_id, rp.division_id, rp.timestamp, pol.player_id
+    )
+    SELECT bpr.*, p.name as player_name, l.name as league_name,
+           d.name as division_name, u.name as user_name, p.user_id
+    FROM best_player_ranks bpr
+    JOIN players p ON bpr.player_id = p.id
+    JOIN users u ON p.user_id = u.id
+    JOIN leagues l ON bpr.league_id = l.id
+    LEFT JOIN divisions d ON bpr.division_id = d.id
+    ORDER BY bpr.league_id, bpr.timestamp DESC, bpr.rank, bpr.player_id
+"""
+
+RANK_USERS_SQL = """
+    WITH best_user_ranks AS (
+        SELECT rp.league_id, rp.division_id, rp.timestamp, p.user_id, MIN(rp.rank) AS rank
+        FROM rank_policies rp
+        JOIN policies pol ON rp.policy_id = pol.id
+        JOIN players p ON pol.player_id = p.id
+        GROUP BY rp.league_id, rp.division_id, rp.timestamp, p.user_id
+    )
+    SELECT bur.*, u.name as user_name, l.name as league_name, d.name as division_name
+    FROM best_user_ranks bur
+    JOIN users u ON bur.user_id = u.id
+    JOIN leagues l ON bur.league_id = l.id
+    LEFT JOIN divisions d ON bur.division_id = d.id
+    ORDER BY bur.league_id, bur.timestamp DESC, bur.rank, bur.user_id
+"""
+
 
 def query(sql, params=()):
     conn = sqlite3.connect(DB_PATH)
@@ -204,26 +237,9 @@ class Handler(SimpleHTTPRequestHandler):
                 JOIN games g ON l.game_id = g.id
             """)
         if path == "/api/rank_users":
-            return query("""
-                SELECT ru.*, u.name as user_name, l.name as league_name,
-                       d.name as division_name
-                FROM rank_users ru
-                JOIN users u ON ru.user_id = u.id
-                JOIN leagues l ON ru.league_id = l.id
-                LEFT JOIN divisions d ON ru.division_id = d.id
-                ORDER BY ru.league_id, ru.timestamp DESC, ru.rank
-            """)
+            return query(RANK_USERS_SQL)
         if path == "/api/rank_players":
-            return query("""
-                SELECT rp.*, p.name as player_name, l.name as league_name,
-                       d.name as division_name, u.name as user_name, p.user_id
-                FROM rank_players rp
-                JOIN players p ON rp.player_id = p.id
-                JOIN users u ON p.user_id = u.id
-                JOIN leagues l ON rp.league_id = l.id
-                LEFT JOIN divisions d ON rp.division_id = d.id
-                ORDER BY rp.league_id, rp.timestamp DESC, rp.rank
-            """)
+            return query(RANK_PLAYERS_SQL)
         if path == "/api/rank_policies":
             return query("""
                 SELECT rp.*, pol.name as policy_name, l.name as league_name,
@@ -245,7 +261,7 @@ class Handler(SimpleHTTPRequestHandler):
             """)
         if path == "/api/division_policies":
             return query("""
-                SELECT dp.division_id, dp.policy_id,
+                SELECT dp.*,
                        d.name as division_name,
                        pol.name as policy_name,
                        pl.name as player_name
@@ -326,21 +342,6 @@ class Handler(SimpleHTTPRequestHandler):
                     "INSERT INTO player_league_memberships (player_id, league_id) VALUES (?, ?)",
                     (player_id, league_id),
                 )
-            # Add policy to first division of this league
-            div = query(
-                "SELECT id FROM divisions WHERE league_id=? ORDER BY level LIMIT 1",
-                (league_id,),
-            )
-            if div:
-                existing_dp = query(
-                    "SELECT * FROM division_policies WHERE division_id=? AND policy_id=?",
-                    (div[0]["id"], policy_id),
-                )
-                if not existing_dp:
-                    mutate(
-                        "INSERT INTO division_policies (division_id, policy_id) VALUES (?, ?)",
-                        (div[0]["id"], policy_id),
-                    )
             return {"id": sub_id}
 
         # POST /api/submissions/:id/place {division_id}
@@ -348,22 +349,41 @@ class Handler(SimpleHTTPRequestHandler):
         if m:
             sub_id = int(m.group(1))
             division_id = body["division_id"]
-            sub = query("SELECT * FROM submissions WHERE id=?", (sub_id,))
+            conn = sqlite3.connect(DB_PATH)
+            conn.row_factory = sqlite3.Row
+            sub = conn.execute("SELECT * FROM submissions WHERE id=?", (sub_id,)).fetchone()
             if not sub:
+                conn.close()
                 return {"error": "not found"}
-            s = sub[0]
-            # Create placement
-            pl_id = mutate(
+            division = conn.execute("SELECT * FROM divisions WHERE id=?", (division_id,)).fetchone()
+            if not division:
+                conn.close()
+                return {"error": "division not found"}
+            if division["league_id"] != sub["league_id"]:
+                conn.close()
+                return {"error": "division must belong to submission league"}
+
+            cur = conn.execute(
                 "INSERT INTO placements (policy_id, league_id, division_id, notes) VALUES (?, ?, ?, ?)",
-                (s["policy_id"], s["league_id"], division_id, f"From submission #{sub_id}"),
+                (sub["policy_id"], sub["league_id"], division_id, f"From submission #{sub_id}"),
             )
-            # Create placement result
-            mutate(
+            pl_id = cur.lastrowid
+            conn.execute(
                 "INSERT INTO placement_results (placement_id, division_id) VALUES (?, ?)",
                 (pl_id, division_id),
             )
-            # Update submission status
-            mutate("UPDATE submissions SET status='placed' WHERE id=?", (sub_id,))
+            existing_membership = conn.execute(
+                "SELECT 1 FROM division_policies WHERE division_id=? AND policy_id=?",
+                (division_id, sub["policy_id"]),
+            ).fetchone()
+            if not existing_membership:
+                conn.execute(
+                    "INSERT INTO division_policies (division_id, policy_id) VALUES (?, ?)",
+                    (division_id, sub["policy_id"]),
+                )
+            conn.execute("UPDATE submissions SET status='placed' WHERE id=?", (sub_id,))
+            conn.commit()
+            conn.close()
             return {"placement_id": pl_id}
 
         # POST /api/submissions/:id/reject {notes?}

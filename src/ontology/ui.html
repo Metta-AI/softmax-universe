@@ -389,6 +389,14 @@ function tagLink(type, id, label, color) {
 function pillLink(type, id, label, dotColor) {
   return `<div class="pill clickable" onclick="navigate('${type}/${id}')"><span class="dot" style="background:var(--${dotColor})"></span>${label}</div>`;
 }
+function divisionMembershipLink(dp, color) {
+  const division = tagLink('divisions', dp.division_id, dp.division_name, color || 'purple');
+  return dp.is_champion ? `${division} <span class="tag tag-green" style="font-size:10px">champion</span>` : division;
+}
+function policyDivisionLink(dp, color) {
+  const policy = tagLink('policies', dp.policy_id, dp.policy_name, color || 'orange');
+  return dp.is_champion ? `${policy} <span class="tag tag-green" style="font-size:10px">champion</span>` : policy;
+}
 
 // --- Mutations ---
 async function post(url, body) {
@@ -507,7 +515,7 @@ function renderUsers() {
                 return `<tr>
                   <td>${link('policies', pol.id, '<strong>'+pol.name+'</strong>')}</td>
                   <td style="color:var(--text2)">${pol.description || '-'}</td>
-                  <td>${divPols.map(dp => tagLink('divisions', dp.division_id, dp.division_name, 'purple')).join(' ') || '<span style="color:var(--text2)">-</span>'}</td>
+                  <td>${divPols.map(dp => divisionMembershipLink(dp, 'purple')).join(' ') || '<span style="color:var(--text2)">-</span>'}</td>
                   <td style="color:var(--text2);font-size:11px">${pol.notes || '-'}</td>
                 </tr>`;
               }).join('')}</tbody>
@@ -581,7 +589,7 @@ function renderPolicies() {
           <td style="color:var(--text2);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${pol.description || '-'}</td>
           <td>${link('players', pol.player_id, pol.player_name)}</td>
           <td>${link('users', state.players.find(p=>p.id===pol.player_id)?.user_id, pol.user_name)}</td>
-          <td>${divPols.map(dp => tagLink('divisions', dp.division_id, dp.division_name, 'purple')).join(' ')}</td>
+          <td>${divPols.map(dp => divisionMembershipLink(dp, 'purple')).join(' ')}</td>
         </tr>`;
       }).join('')}</tbody>
     </table></div>
@@ -720,7 +728,7 @@ function renderLeagues() {
                   <span style="color:var(--text2);font-size:11px;margin-left:8px">${pols.length} polic${pols.length!==1?'ies':'y'}</span>
                 </div>
                 <div style="margin-left:12px;font-size:12px">
-                  ${pols.map(dp => tagLink('policies', dp.policy_id, dp.policy_name, 'orange')).join(' ')}
+                  ${pols.map(dp => policyDivisionLink(dp, 'orange')).join(' ')}
                 </div>
               </div>`;
             }).join('')}
@@ -744,7 +752,7 @@ function renderDivisions() {
           <td>${link('leagues', d.league_id, d.league_name)}</td>
           <td>${tagLink('games', state.leagues.find(l=>l.id===d.league_id)?.game_id, d.game_name, 'blue')}</td>
           <td><span class="tag tag-purple">${d.level}</span></td>
-          <td>${pols.map(dp => tagLink('policies', dp.policy_id, dp.policy_name, 'orange')).join(' ')}</td>
+          <td>${pols.map(dp => policyDivisionLink(dp, 'orange')).join(' ')}</td>
         </tr>`;
       }).join('')}</tbody>
     </table></div>
@@ -824,7 +832,7 @@ function renderCommissioners() {
 
 function renderRankings() {
   return `
-    <div class="page-header"><div><h2>Rankings</h2><div class="subtitle">Leaderboards across leagues</div></div></div>
+    <div class="page-header"><div><h2>Rankings</h2><div class="subtitle">Policy standings plus derived player and user leaderboards</div></div></div>
     <div class="detail-section"><h3>Policy Rankings</h3>
     <div class="table-container"><table>
       <thead><tr><th>Rank</th><th>Policy</th><th>League</th><th>Division</th><th>Player</th><th>Timestamp</th></tr></thead>
@@ -957,7 +965,7 @@ function renderPlayerDetail(id) {
           const divPols = state.division_policies.filter(dp => dp.policy_id === pol.id);
           return `<div class="detail-card" style="flex:1;min-width:200px">
             <h3>${link('policies', pol.id, pol.name)}</h3>
-            <div class="items" style="margin-top:8px">${divPols.map(dp => tagLink('divisions', dp.division_id, dp.division_name, 'purple')).join(' ')}</div>
+            <div class="items" style="margin-top:8px">${divPols.map(dp => divisionMembershipLink(dp, 'purple')).join(' ')}</div>
           </div>`;
         }).join('')}</div>
       </div>
@@ -1002,7 +1010,7 @@ function renderPolicyDetail(id) {
         ).join('')}</div>
       </div>
       <div class="detail-section"><h3>Divisions (${divPols.length})</h3>
-        <div class="items">${divPols.map(dp => tagLink('divisions', dp.division_id, dp.division_name, 'purple')).join(' ')}</div>
+        <div class="items">${divPols.map(dp => divisionMembershipLink(dp, 'purple')).join(' ')}</div>
       </div>
     </div>
   `;
@@ -1086,7 +1094,7 @@ function renderSubmissionDetail(id) {
       </div>
       ${s.status === 'pending' ? `
       <div class="action-bar">
-        <select id="place-division">${state.divisions.filter(d => d.league_id === s.league_id || state.leagues.find(l=>l.id===d.league_id)?.game_id === state.leagues.find(l=>l.id===s.league_id)?.game_id).map(d =>
+        <select id="place-division">${state.divisions.filter(d => d.league_id === s.league_id).map(d =>
           `<option value="${d.id}">${d.name} (${d.league_name})</option>`
         ).join('')}</select>
         <button class="btn btn-sm" onclick="placeSubmission(${s.id})">Place</button>
@@ -1163,7 +1171,7 @@ function renderLeagueDetail(id) {
               <span style="color:var(--text2);font-size:11px;margin-left:8px">${pols.length} polic${pols.length!==1?'ies':'y'}</span>
             </div>
             <div style="margin-left:12px;font-size:12px">
-              ${pols.map(dp => tagLink('policies', dp.policy_id, dp.policy_name, 'orange')).join(' ')}
+              ${pols.map(dp => policyDivisionLink(dp, 'orange')).join(' ')}
             </div>
           </div>`;
         }).join('')}
@@ -1214,7 +1222,7 @@ function renderDivisionDetail(id) {
         <div class="label">Level</div><div>${d.level}</div>
       </div>
       <div class="detail-section"><h3>Policies (${pols.length})</h3>
-        <div class="items">${pols.map((dp, i) => pillLink('policies', dp.policy_id, `${dp.policy_name} <span style="color:var(--text2)">(${dp.player_name})</span>`, ['accent2','green','orange','blue','red'][i % 5])).join('')}</div>
+        <div class="items">${pols.map(dp => policyDivisionLink(dp, 'orange')).join(' ')}</div>
       </div>
       <div class="detail-section"><h3>Rounds (${rounds.length})</h3>
         <div class="items">${rounds.map(r =>
