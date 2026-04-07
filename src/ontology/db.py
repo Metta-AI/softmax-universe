@@ -1,0 +1,595 @@
+#!/usr/bin/env python3
+"""Create and seed the game service SQLite database."""
+
+import sqlite3
+import os
+
+DATA_DIR = os.path.join(os.path.expanduser("~"), ".softmax-universe")
+DB_PATH = os.path.join(DATA_DIR, "ontology.db")
+
+
+def create_db():
+    os.makedirs(DATA_DIR, exist_ok=True)
+    if os.path.exists(DB_PATH):
+        os.remove(DB_PATH)
+
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+
+    c.executescript("""
+        CREATE TABLE users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            email TEXT NOT NULL UNIQUE,
+            notes TEXT DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE players (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            name TEXT NOT NULL,
+            notes TEXT DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE policies (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            player_id INTEGER NOT NULL REFERENCES players(id),
+            name TEXT NOT NULL,
+            description TEXT DEFAULT '',
+            notes TEXT DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE games (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            description TEXT,
+            owner_id INTEGER NOT NULL REFERENCES users(id),
+            notes TEXT DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE leagues (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            game_id INTEGER NOT NULL REFERENCES games(id),
+            mod_id INTEGER REFERENCES mods(id),
+            rules TEXT,
+            commissioner TEXT,
+            notes TEXT DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE divisions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            league_id INTEGER NOT NULL REFERENCES leagues(id),
+            level INTEGER NOT NULL DEFAULT 1,
+            notes TEXT DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE mods (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            game_id INTEGER NOT NULL REFERENCES games(id),
+            owner_id INTEGER NOT NULL REFERENCES users(id),
+            notes TEXT DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE pools (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            division_id INTEGER NOT NULL REFERENCES divisions(id),
+            notes TEXT DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE submissions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            policy_id INTEGER NOT NULL REFERENCES policies(id),
+            league_id INTEGER NOT NULL REFERENCES leagues(id),
+            timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+            notes TEXT DEFAULT '',
+            pred_policy_id INTEGER REFERENCES policies(id),
+            preferences TEXT DEFAULT '{}',
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE placements (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            policy_id INTEGER NOT NULL REFERENCES policies(id),
+            league_id INTEGER NOT NULL REFERENCES leagues(id),
+            division_id INTEGER REFERENCES divisions(id),
+            notes TEXT DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE placement_results (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            placement_id INTEGER NOT NULL REFERENCES placements(id),
+            division_id INTEGER NOT NULL REFERENCES divisions(id),
+            notes TEXT DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE player_league_memberships (
+            player_id INTEGER NOT NULL REFERENCES players(id),
+            league_id INTEGER NOT NULL REFERENCES leagues(id),
+            notes TEXT DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (player_id, league_id)
+        );
+
+        CREATE TABLE variants (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            config TEXT DEFAULT '',
+            notes TEXT DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE projects (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            player_id INTEGER NOT NULL REFERENCES players(id),
+            name TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','paused','completed','archived')),
+            notes TEXT DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE status_updates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id INTEGER NOT NULL REFERENCES projects(id),
+            content TEXT NOT NULL,
+            notes TEXT DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE experience_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            mettagrid_config TEXT NOT NULL DEFAULT '{}',
+            policy_ids TEXT NOT NULL DEFAULT '[]',
+            seed INTEGER,
+            num_episodes INTEGER NOT NULL DEFAULT 1,
+            notes TEXT DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE mod_variants (
+            mod_id INTEGER NOT NULL REFERENCES mods(id),
+            variant_id INTEGER NOT NULL REFERENCES variants(id),
+            canonical INTEGER NOT NULL DEFAULT 0,
+            notes TEXT DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (mod_id, variant_id)
+        );
+
+        CREATE TABLE episodes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            variant_id INTEGER NOT NULL REFERENCES variants(id),
+            seed INTEGER NOT NULL,
+            score TEXT DEFAULT '{}',
+            notes TEXT DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE episode_policies (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            policy_id INTEGER NOT NULL REFERENCES policies(id),
+            episode_id INTEGER NOT NULL REFERENCES episodes(id),
+            agent_id INTEGER NOT NULL DEFAULT 0,
+            score REAL DEFAULT 0,
+            logs TEXT DEFAULT '',
+            notes TEXT DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE episode_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            episode_id INTEGER NOT NULL REFERENCES episodes(id),
+            log_uri TEXT NOT NULL,
+            notes TEXT DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE rounds (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pool_id INTEGER NOT NULL REFERENCES pools(id),
+            notes TEXT DEFAULT '',
+            results TEXT DEFAULT '{}',
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE rank_users (
+            league_id INTEGER NOT NULL REFERENCES leagues(id),
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+            rank INTEGER NOT NULL,
+            division_id INTEGER REFERENCES divisions(id),
+            notes TEXT DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (league_id, user_id, timestamp)
+        );
+
+        CREATE TABLE rank_players (
+            league_id INTEGER NOT NULL REFERENCES leagues(id),
+            player_id INTEGER NOT NULL REFERENCES players(id),
+            timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+            rank INTEGER NOT NULL,
+            division_id INTEGER REFERENCES divisions(id),
+            notes TEXT DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (league_id, player_id, timestamp)
+        );
+
+        CREATE TABLE rank_policies (
+            league_id INTEGER NOT NULL REFERENCES leagues(id),
+            policy_id INTEGER NOT NULL REFERENCES policies(id),
+            timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+            rank INTEGER NOT NULL,
+            division_id INTEGER REFERENCES divisions(id),
+            notes TEXT DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (league_id, policy_id, timestamp)
+        );
+
+        CREATE TABLE round_episodes (
+            round_id INTEGER NOT NULL REFERENCES rounds(id),
+            episode_id INTEGER NOT NULL REFERENCES episodes(id),
+            notes TEXT DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (round_id, episode_id)
+        );
+
+        CREATE TABLE pool_policies (
+            pool_id INTEGER NOT NULL REFERENCES pools(id),
+            policy_id INTEGER NOT NULL REFERENCES policies(id),
+            notes TEXT DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (pool_id, policy_id)
+        );
+    """)
+
+    # -- Seed data --
+
+    users = [
+        ("David Bloomin", "david@example.com"),
+        ("Emmett Shear", "emmett@example.com"),
+        ("Richard Higgins", "richard@example.com"),
+    ]
+    c.executemany("INSERT INTO users (name, email) VALUES (?, ?)", users)
+
+    players = [
+        (1, "daveey"),
+        (1, "daveey_alt"),
+        (2, "emmett_main"),
+        (2, "emmett_v2"),
+        (3, "relh"),
+        (3, "relh_smurf"),
+    ]
+    c.executemany("INSERT INTO players (user_id, name) VALUES (?, ?)", players)
+
+    policies = [
+        (1, "AlphaStrike", "Aggressive opener with early rush", "Needs tuning vs turtle strats"),
+        (1, "DefendBot", "Defensive wall strategy", ""),
+        (2, "RushDown", "All-in rush before 2min mark", "Weak on large maps"),
+        (3, "TurtleShell", "Slow economy build into late game", ""),
+        (3, "Blitz-v3", "Fast expand with harassment", "v3 fixes pathing bugs"),
+        (4, "SwarmAI", "Mass cheap units, overwhelm", "Best on open maps"),
+        (4, "HiveMind", "Coordinated multi-front attacks", ""),
+        (5, "SniperBot", "Long-range precision strikes", "Counters SwarmAI well"),
+        (5, "TankBot", "Heavy armor push", ""),
+        (6, "ScoutRush", "Early scouting into adaptive play", "Still experimental"),
+        (6, "FlankerPro", "Flanking maneuvers and ambushes", ""),
+    ]
+    c.executemany("INSERT INTO policies (player_id, name, description, notes) VALUES (?, ?, ?, ?)", policies)
+
+    games = [
+        ("Cogs vs Clips", "Tower defense with AI-controlled guardians", 1),
+        ("Over Cooked", "Team-based cooperative cooking chaos", 2),
+        ("BomberCog", "Grid-based bomb placement and strategy", 3),
+    ]
+    c.executemany("INSERT INTO games (name, description, owner_id) VALUES (?, ?, ?)", games)
+
+    mods = [
+        ("Base", 1, 1),
+        ("Clones", 1, 1),
+        ("Four-Score", 1, 2),
+        ("Latte", 1, 3),
+        ("OverCogged", 1, 2),
+    ]
+    c.executemany("INSERT INTO mods (name, game_id, owner_id) VALUES (?, ?, ?)", mods)
+
+    leagues = [
+        ("Base", 1, 1, "Standard rules", "David Bloomin"),
+        ("Clones", 1, 2, "Clone variant with duplicated units", "David Bloomin"),
+        ("Four-Score", 1, 3, "4-player free-for-all, first to 4 wins", "David Bloomin"),
+        ("Pro League", 2, None, "Tournament format, best of 5", "Emmett Shear"),
+        ("Casual", 2, None, "No stakes, practice matches", "Richard Higgins"),
+        ("Championship", 3, None, "Invite only, top 16 policies", "Richard Higgins"),
+    ]
+    c.executemany(
+        "INSERT INTO leagues (name, game_id, mod_id, rules, commissioner) VALUES (?, ?, ?, ?, ?)",
+        leagues,
+    )
+
+    divisions = [
+        ("Carbon", 1, 1),       # Base league
+        ("Oxygen", 1, 2),
+        ("Silicon", 2, 1),      # Clones league
+        ("Carbon", 3, 1),       # Four-Score league
+        ("Germanium", 3, 2),
+        ("Carbon", 4, 1),       # Pro League
+        ("Oxygen", 4, 2),
+        ("Silicon", 5, 1),      # Casual
+        ("Carbon", 6, 1),       # Championship
+    ]
+    c.executemany(
+        "INSERT INTO divisions (name, league_id, level) VALUES (?, ?, ?)",
+        divisions,
+    )
+
+    pools = [
+        ("Pool A", 1),    # Base Div 1
+        ("Pool B", 1),
+        ("Gold Pool", 2), # Base Div 2
+        ("Silver Pool", 3), # Clones Div 1
+        ("Starter Pool", 4), # Four-Score Div 1
+        ("Main Draw", 6),  # Pro League Open
+        ("Practice Pool", 8), # Casual Main
+        ("Finals Pool", 9),  # Championship Elite
+    ]
+    c.executemany("INSERT INTO pools (name, division_id) VALUES (?, ?)", pools)
+
+    submissions = [
+        (1, 1, "2026-04-01 10:00:00", "Initial submission", None, '{"map_size": "large"}'),
+        (2, 1, "2026-04-01 11:00:00", "Defensive variant", 1, '{}'),
+        (3, 1, "2026-04-02 09:00:00", "", None, '{"timeout": 30}'),
+        (5, 2, "2026-04-02 14:00:00", "Testing blitz on clones", None, '{}'),
+        (6, 3, "2026-04-03 08:00:00", "Swarm v2 for four-score", None, '{"team_size": 4}'),
+        (8, 1, "2026-04-03 12:00:00", "Sniper counter-meta", 1, '{}'),
+        (9, 4, "2026-04-04 10:00:00", "", None, '{}'),
+        (1, 2, "2026-04-05 09:00:00", "Updated alpha for clones", None, '{"clone_count": 3}'),
+        (10, 6, "2026-04-05 15:00:00", "Championship entry", None, '{}'),
+    ]
+    c.executemany(
+        "INSERT INTO submissions (policy_id, league_id, timestamp, notes, pred_policy_id, preferences) VALUES (?, ?, ?, ?, ?, ?)",
+        submissions,
+    )
+
+    placements = [
+        (1, 1, 1, "Placed into Carbon"),
+        (2, 1, 2, "Placed into Oxygen"),
+        (3, 1, 1, ""),
+        (5, 2, 3, "Placed into Silicon"),
+        (6, 3, 4, ""),
+        (8, 1, 1, "Sniper placed Carbon"),
+        (9, 4, 6, "Pro league entry"),
+        (10, 6, 9, "Championship Carbon"),
+    ]
+    c.executemany(
+        "INSERT INTO placements (policy_id, league_id, division_id, notes) VALUES (?, ?, ?, ?)",
+        placements,
+    )
+
+    placement_results = [
+        (1, 1),   # placement 1 → Carbon
+        (2, 2),   # placement 2 → Oxygen
+        (3, 1),   # placement 3 → Carbon
+        (4, 3),   # placement 4 → Silicon
+        (5, 4),   # placement 5 → Carbon (Four-Score)
+        (6, 1),   # placement 6 → Carbon
+        (7, 6),   # placement 7 → Carbon (Pro League)
+        (8, 9),   # placement 8 → Carbon (Championship)
+    ]
+    c.executemany(
+        "INSERT INTO placement_results (placement_id, division_id) VALUES (?, ?)",
+        placement_results,
+    )
+
+    player_league_memberships = [
+        (1, 1), (1, 2),  # daveey in Base, Clones
+        (2, 1),           # daveey_alt in Base
+        (3, 1), (3, 3),  # emmett_main in Base, Four-Score
+        (4, 4),           # emmett_v2 in Pro League
+        (5, 1), (5, 6),  # relh in Base, Championship
+        (6, 5),           # relh_smurf in Casual
+    ]
+    c.executemany(
+        "INSERT INTO player_league_memberships (player_id, league_id) VALUES (?, ?)",
+        player_league_memberships,
+    )
+
+    variants = [
+        ("Standard 1v1", '{"map": "arena", "players": 2, "turns": 100}'),
+        ("2v2 Teams", '{"map": "battlefield", "players": 4, "turns": 200}'),
+        ("FFA Chaos", '{"map": "colosseum", "players": 6, "turns": 150}'),
+    ]
+    c.executemany("INSERT INTO variants (name, config) VALUES (?, ?)", variants)
+
+    projects = [
+        (1, "Rush Meta Research", "active"),
+        (1, "Defense Optimization", "paused"),
+        (3, "Swarm Tactics v2", "active"),
+        (5, "Sniper Counter-Play", "completed"),
+        (6, "Tournament Prep", "active"),
+    ]
+    c.executemany(
+        "INSERT INTO projects (player_id, name, status) VALUES (?, ?, ?)",
+        projects,
+    )
+
+    status_updates = [
+        (1, "Started analyzing rush timings across maps"),
+        (1, "Found optimal rush window is 45-60s on small maps"),
+        (2, "Pausing defense work to focus on rush meta"),
+        (3, "SwarmAI v2 prototype showing 15% improvement"),
+        (3, "Testing multi-front coordination"),
+        (4, "SniperBot now counters all rush variants"),
+        (5, "Registered for Championship league"),
+        (5, "Running practice matches against top 5 policies"),
+    ]
+    c.executemany(
+        "INSERT INTO status_updates (project_id, content) VALUES (?, ?)",
+        status_updates,
+    )
+
+    experience_requests = [
+        (1, '{"map": "arena", "players": 2}', '[1, 2]', 42, 10),
+        (2, '{"map": "battlefield", "fog": true}', '[6, 7]', None, 5),
+        (1, '{"map": "arena", "players": 4}', '[1, 2, 4, 8]', 99, 20),
+        (3, '{"map": "colosseum"}', '[8, 9]', None, 3),
+    ]
+    c.executemany(
+        "INSERT INTO experience_requests (user_id, mettagrid_config, policy_ids, seed, num_episodes) VALUES (?, ?, ?, ?, ?)",
+        experience_requests,
+    )
+
+    mod_variants = [
+        (1, 1, 1),  # Base mod → Standard 1v1 (canonical)
+        (1, 2, 0),  # Base mod → 2v2 Teams
+        (2, 1, 1),  # Clones mod → Standard 1v1 (canonical)
+        (3, 3, 1),  # Four-Score mod → FFA Chaos (canonical)
+        (4, 1, 1),  # Latte mod → Standard 1v1 (canonical)
+        (5, 2, 1),  # OverCogged mod → 2v2 Teams (canonical)
+    ]
+    c.executemany(
+        "INSERT INTO mod_variants (mod_id, variant_id, canonical) VALUES (?, ?, ?)",
+        mod_variants,
+    )
+
+    episodes = [
+        (1, 42, '{"winner": "AlphaStrike", "turns": 24}'),
+        (1, 99, '{"winner": "AlphaStrike", "turns": 31}'),
+        (2, 7, '{"winner": "Blitz-v3", "turns": 18}'),
+        (1, 123, '{"winner": "AlphaStrike", "turns": 27}'),
+        (3, 55, '{"winner": "TankBot", "turns": 40}'),
+        (2, 88, '{"winner": "Blitz-v3", "turns": 22}'),
+    ]
+    c.executemany("INSERT INTO episodes (variant_id, seed, score) VALUES (?, ?, ?)", episodes)
+
+    episode_policies = [
+        (1, 1, 0, 3.5, "Turn 12: captured flag"),
+        (2, 1, 1, 1.2, ""),
+        (1, 2, 0, 4.0, "Dominated early game"),
+        (3, 2, 1, 2.1, ""),
+        (5, 3, 0, 5.0, "Perfect score"),
+        (6, 3, 1, 3.3, "Close match"),
+        (8, 4, 0, 2.8, ""),
+        (1, 4, 1, 3.1, ""),
+        (9, 5, 0, 4.5, "Strong finish"),
+        (10, 5, 1, 1.0, "Eliminated round 2"),
+        (5, 6, 0, 3.9, ""),
+        (7, 6, 1, 2.5, "HiveMind timeout on turn 8"),
+    ]
+    c.executemany(
+        "INSERT INTO episode_policies (policy_id, episode_id, agent_id, score, logs) VALUES (?, ?, ?, ?, ?)",
+        episode_policies,
+    )
+
+    episode_logs = [
+        (1, "s3://games/episodes/1/replay.log"),
+        (1, "s3://games/episodes/1/metrics.json"),
+        (2, "s3://games/episodes/2/replay.log"),
+        (3, "s3://games/episodes/3/replay.log"),
+        (4, "s3://games/episodes/4/replay.log"),
+        (5, "s3://games/episodes/5/replay.log"),
+        (6, "s3://games/episodes/6/replay.log"),
+    ]
+    c.executemany(
+        "INSERT INTO episode_logs (episode_id, log_uri) VALUES (?, ?)",
+        episode_logs,
+    )
+
+    rounds = [
+        (1, "Round 1", '{"AlphaStrike": 3, "TurtleShell": 1, "SniperBot": 2}'),
+        (1, "Round 2", '{"AlphaStrike": 2, "TurtleShell": 2, "SniperBot": 2}'),
+        (2, "Round 1", '{"DefendBot": 1, "Blitz-v3": 3, "TankBot": 2}'),
+        (3, "Round 1", '{"AlphaStrike": 4, "SwarmAI": 0, "ScoutRush": 2}'),
+        (5, "Qualifier", '{"DefendBot": 2, "Blitz-v3": 1, "TankBot": 3}'),
+        (6, "Semifinal", '{"AlphaStrike": 5, "SwarmAI": 3, "SniperBot": 4, "FlankerPro": 2}'),
+        (8, "Final", '{"AlphaStrike": 6, "SniperBot": 5, "TankBot": 3, "FlankerPro": 4}'),
+    ]
+    c.executemany(
+        "INSERT INTO rounds (pool_id, notes, results) VALUES (?, ?, ?)",
+        rounds,
+    )
+
+    rank_users = [
+        (1, 1, "2026-04-01 12:00:00", 1, 1),
+        (1, 2, "2026-04-01 12:00:00", 2, 1),
+        (1, 3, "2026-04-01 12:00:00", 3, 2),
+        (2, 1, "2026-04-02 12:00:00", 2, 3),
+        (2, 2, "2026-04-02 12:00:00", 1, 3),
+    ]
+    c.executemany(
+        "INSERT INTO rank_users (league_id, user_id, timestamp, rank, division_id) VALUES (?, ?, ?, ?, ?)",
+        rank_users,
+    )
+
+    rank_players = [
+        (1, 1, "2026-04-01 12:00:00", 1, 1),
+        (1, 2, "2026-04-01 12:00:00", 3, 2),
+        (1, 3, "2026-04-01 12:00:00", 2, 1),
+        (1, 5, "2026-04-01 12:00:00", 4, 2),
+        (2, 3, "2026-04-02 12:00:00", 1, 3),
+        (2, 4, "2026-04-02 12:00:00", 2, 3),
+    ]
+    c.executemany(
+        "INSERT INTO rank_players (league_id, player_id, timestamp, rank, division_id) VALUES (?, ?, ?, ?, ?)",
+        rank_players,
+    )
+
+    rank_policies = [
+        (1, 1, "2026-04-01 12:00:00", 1, 1),
+        (1, 2, "2026-04-01 12:00:00", 4, 2),
+        (1, 4, "2026-04-01 12:00:00", 2, 1),
+        (1, 8, "2026-04-01 12:00:00", 3, 1),
+        (2, 5, "2026-04-02 12:00:00", 1, 3),
+        (2, 6, "2026-04-02 12:00:00", 2, 3),
+        (1, 1, "2026-04-03 12:00:00", 2, 1),
+        (1, 4, "2026-04-03 12:00:00", 1, 1),
+    ]
+    c.executemany(
+        "INSERT INTO rank_policies (league_id, policy_id, timestamp, rank, division_id) VALUES (?, ?, ?, ?, ?)",
+        rank_policies,
+    )
+
+    round_episodes = [
+        (1, 1), (1, 2),
+        (2, 3),
+        (3, 4),
+        (5, 5),
+        (6, 6),
+        (7, 1), (7, 4),
+    ]
+    c.executemany(
+        "INSERT INTO round_episodes (round_id, episode_id) VALUES (?, ?)",
+        round_episodes,
+    )
+
+    pool_policies = [
+        (1, 1), (1, 4), (1, 8),       # Pool A
+        (2, 2), (2, 5), (2, 9),       # Pool B
+        (3, 1), (3, 6), (3, 10),      # Gold
+        (4, 3), (4, 7), (4, 11),      # Silver
+        (5, 2), (5, 5), (5, 9),       # Starter
+        (6, 1), (6, 6), (6, 8), (6, 11),  # Main Draw
+        (7, 4), (7, 7), (7, 10),      # Practice
+        (8, 1), (8, 8), (8, 9), (8, 11),  # Finals
+    ]
+    c.executemany("INSERT INTO pool_policies (pool_id, policy_id) VALUES (?, ?)", pool_policies)
+
+    conn.commit()
+    conn.close()
+    print(f"Database created at {DB_PATH}")
+
+
+if __name__ == "__main__":
+    create_db()
