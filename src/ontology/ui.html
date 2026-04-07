@@ -409,7 +409,7 @@
   }
 
   .relationship-edge.is-dimmed {
-    opacity: 0.14;
+    opacity: 0.32;
   }
 
   .relationship-edge.is-active {
@@ -426,7 +426,7 @@
   }
 
   .relationship-node-group.is-dimmed {
-    opacity: 0.18;
+    opacity: 0.46;
   }
 
   .relationship-node-group.is-related .relationship-node-card {
@@ -476,6 +476,12 @@
     display: flex;
     gap: 6px;
     flex-wrap: wrap;
+  }
+
+  .relationship-inspector-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 16px;
   }
 
 </style>
@@ -529,6 +535,8 @@
 
 <script>
 const state = {};
+state.relationshipMapHover = null;
+state.relationshipMapSelection = null;
 const OBJECT_DESCRIPTIONS = {
   users: 'human accounts',
   players: 'submitters of policies, possibly agents',
@@ -740,6 +748,11 @@ function isRelationshipJunctionTable(table) {
     name.startsWith('is_')
   );
 }
+function getRelationshipLaneOffset(index) {
+  const step = 14;
+  const band = Math.floor(index / 2) + 1;
+  return (index % 2 === 0 ? -1 : 1) * band * step;
+}
 function buildRelationshipGraphLayout() {
   const tables = getSchemaTables().map(table => ({
     ...table,
@@ -793,33 +806,61 @@ function buildRelationshipGraphLayout() {
   const smallNodeHeight = 48;
   const horizontalGap = 72;
   const verticalGap = 24;
+  const compactGap = 16;
   const marginX = 46;
   const marginTop = 78;
   const marginBottom = 48;
   const clusterPad = 18;
-  const tallestColumn = Math.max(...categoryEntries.map(category => category.names.length));
-  const height = marginTop + (tallestColumn * nodeHeight) + (Math.max(0, tallestColumn - 1) * verticalGap) + marginBottom;
   const width = marginX + (categoryEntries.length * nodeWidth) + (Math.max(0, categoryEntries.length - 1) * horizontalGap) + marginX;
 
-  const nodes = tables.map(table => {
+  const defaultNodes = tables.map(table => {
     const categoryIndex = categoryEntries.findIndex(category => category.names.includes(table.name));
     const category = categoryEntries[categoryIndex];
     const index = category.names.indexOf(table.name);
     const isSmall = isRelationshipJunctionTable(table);
     const width = isSmall ? smallNodeWidth : nodeWidth;
     const height = isSmall ? smallNodeHeight : nodeHeight;
+    const defaultY = marginTop + index * (nodeHeight + verticalGap) + ((nodeHeight - height) / 2);
     return {
       ...table,
+      categoryIndex,
       categoryKey: category.key,
       x: marginX + categoryIndex * (nodeWidth + horizontalGap) + ((nodeWidth - width) / 2),
-      y: marginTop + index * (nodeHeight + verticalGap) + ((nodeHeight - height) / 2),
+      y: defaultY,
+      desiredY: defaultY,
       width,
       height,
       lines: splitModelTitle(table.name),
       tone: category.tone,
       isSmall,
     };
-  }).sort((left, right) => left.x - right.x || left.y - right.y);
+  });
+
+  const defaultNodeByName = Object.fromEntries(defaultNodes.map(node => [node.name, node]));
+  defaultNodes.forEach(node => {
+    if (!node.isSmall) return;
+    const anchorNodes = (node.foreign_keys || [])
+      .map(fk => defaultNodeByName[fk.table])
+      .filter(Boolean);
+    if (anchorNodes.length < 2) return;
+    const anchorCenter = anchorNodes.reduce((sum, anchor) => sum + anchor.y + (anchor.height / 2), 0) / anchorNodes.length;
+    node.desiredY = anchorCenter - (node.height / 2);
+  });
+
+  const nodes = [];
+  categoryEntries.forEach(category => {
+    const laneNodes = defaultNodes
+      .filter(node => node.categoryKey === category.key)
+      .sort((left, right) => left.desiredY - right.desiredY || left.y - right.y);
+
+    let nextY = marginTop;
+    laneNodes.forEach(node => {
+      node.y = Math.max(node.desiredY, nextY);
+      nextY = node.y + node.height + compactGap;
+      nodes.push(node);
+    });
+  });
+  nodes.sort((left, right) => left.x - right.x || left.y - right.y);
 
   const nodeByName = Object.fromEntries(nodes.map(node => [node.name, node]));
   const linkMap = new Map();
@@ -829,7 +870,31 @@ function buildRelationshipGraphLayout() {
     if (!linkMap.has(key)) linkMap.set(key, { parent: rel.parent, child: rel.child, optionalOnly: true });
     if (!rel.optional) linkMap.get(key).optionalOnly = false;
   });
+  const links = [...linkMap.values()].map(link => ({ ...link, sameLaneOffset: 0 }));
+  const sameLaneGroups = new Map();
+  links.forEach(link => {
+    const parentNode = nodeByName[link.parent];
+    const childNode = nodeByName[link.child];
+    if (!parentNode || !childNode || parentNode.categoryKey !== childNode.categoryKey) return;
+    const key = parentNode.categoryKey;
+    if (!sameLaneGroups.has(key)) sameLaneGroups.set(key, []);
+    sameLaneGroups.get(key).push(link);
+  });
+  sameLaneGroups.forEach(group => {
+    group
+      .sort((left, right) => {
+        const leftParent = nodeByName[left.parent];
+        const rightParent = nodeByName[right.parent];
+        const leftChild = nodeByName[left.child];
+        const rightChild = nodeByName[right.child];
+        return leftParent.y - rightParent.y || leftChild.y - rightChild.y || left.parent.localeCompare(right.parent) || left.child.localeCompare(right.child);
+      })
+      .forEach((link, index) => {
+        link.sameLaneOffset = getRelationshipLaneOffset(index);
+      });
+  });
 
+  const height = Math.max(...nodes.map(node => node.y + node.height)) + marginBottom;
   const clusters = categoryEntries.map((category, index) => ({
     title: category.title,
     x: marginX + index * (nodeWidth + horizontalGap) - clusterPad,
@@ -844,7 +909,7 @@ function buildRelationshipGraphLayout() {
     height,
     nodes,
     nodeByName,
-    links: [...linkMap.values()],
+    links,
     clusters,
   };
 }
@@ -864,11 +929,15 @@ function getEdgeAnchor(fromNode, toNode) {
 function renderRelationshipInspector(name) {
   const table = name ? getSchemaTable(name) : null;
   if (!table) {
-    return `<div class="relationship-map-inspector-empty">Hover a table to inspect its description and schema.</div>`;
+    return `<div class="relationship-map-inspector-empty">Hover or click a table to inspect its description and schema.</div>`;
   }
 
   const primaryKeyColumns = (table.columns || []).filter(column => column.pk).map(column => column.name);
   const foreignKeyByColumn = Object.fromEntries((table.foreign_keys || []).map(fk => [fk.from, fk]));
+  const route = getRouteForModel(name);
+  const actions = route
+    ? `<div class="relationship-inspector-actions"><button class="btn btn-sm" onclick="navigate('${route}')">Go</button></div>`
+    : '';
 
   return `
     <h3>${escapeHtml(titleizeModelName(name))}</h3>
@@ -903,13 +972,18 @@ function renderRelationshipInspector(name) {
         </table>
       </div>
     </div>
+    ${actions}
   `;
 }
-function applyRelationshipHoverState(name) {
+function getActiveRelationshipName() {
+  return state.relationshipMapHover || state.relationshipMapSelection || null;
+}
+function applyRelationshipFocusState() {
   const content = document.getElementById('content');
   if (!content) return;
   const nodeEls = content.querySelectorAll('[data-node-name]');
   const edgeEls = content.querySelectorAll('[data-edge-parent]');
+  const name = getActiveRelationshipName();
   const connected = name ? getConnectedRelationshipNames(name) : null;
 
   nodeEls.forEach(el => {
@@ -929,10 +1003,16 @@ function applyRelationshipHoverState(name) {
   if (inspector) inspector.innerHTML = renderRelationshipInspector(name);
 }
 function setRelationshipMapHover(name) {
-  applyRelationshipHoverState(name);
+  state.relationshipMapHover = name;
+  applyRelationshipFocusState();
 }
 function clearRelationshipMapHover() {
-  applyRelationshipHoverState(null);
+  state.relationshipMapHover = null;
+  applyRelationshipFocusState();
+}
+function selectRelationshipNode(name) {
+  state.relationshipMapSelection = name;
+  applyRelationshipFocusState();
 }
 function renderRelationshipMap() {
   const graph = buildRelationshipGraphLayout();
@@ -950,16 +1030,31 @@ function renderRelationshipMap() {
   const renderEdge = edge => {
     const fromNode = graph.nodeByName[edge.parent];
     const toNode = graph.nodeByName[edge.child];
-    const start = getEdgeAnchor(fromNode, toNode);
-    const end = getEdgeAnchor(toNode, fromNode);
-    return `<path class="relationship-edge${edge.optionalOnly ? ' optional' : ''}" data-edge-parent="${edge.parent}" data-edge-child="${edge.child}" d="M ${start.x} ${start.y} L ${end.x} ${end.y}"></path>`;
+    const isSameLane = fromNode.categoryKey === toNode.categoryKey;
+    const fromCenterX = fromNode.x + fromNode.width / 2;
+    const toCenterX = toNode.x + toNode.width / 2;
+    const direction = (toNode.y + toNode.height / 2) >= (fromNode.y + fromNode.height / 2) ? 1 : -1;
+    const start = isSameLane && edge.sameLaneOffset
+      ? {
+          x: fromCenterX + edge.sameLaneOffset,
+          y: direction > 0 ? fromNode.y + fromNode.height : fromNode.y,
+        }
+      : getEdgeAnchor(fromNode, toNode);
+    const end = isSameLane && edge.sameLaneOffset
+      ? {
+          x: toCenterX + edge.sameLaneOffset,
+          y: direction > 0 ? toNode.y : toNode.y + toNode.height,
+        }
+      : getEdgeAnchor(toNode, fromNode);
+    const path = `M ${start.x} ${start.y} L ${end.x} ${end.y}`;
+    return `<path class="relationship-edge${edge.optionalOnly ? ' optional' : ''}" data-edge-parent="${edge.parent}" data-edge-child="${edge.child}" d="${path.replace(/\s+/g, ' ').trim()}"></path>`;
   };
 
   const renderNode = node => {
-    const groupClasses = `relationship-node-group${node.route ? ' is-clickable' : ''}`;
+    const groupClasses = 'relationship-node-group is-clickable';
     const titleStartY = node.lines.length > 1 ? (node.isSmall ? 23 : 27) : (node.isSmall ? 30 : 37);
     return `
-      <g class="${groupClasses}" data-node-name="${node.name}" transform="translate(${node.x}, ${node.y})" onmouseenter="setRelationshipMapHover('${node.name}')" onmouseleave="clearRelationshipMapHover()"${node.route ? ` onclick="navigate('${node.route}')"` : ''}>
+      <g class="${groupClasses}" data-node-name="${node.name}" transform="translate(${node.x}, ${node.y})" onmouseenter="setRelationshipMapHover('${node.name}')" onmouseleave="clearRelationshipMapHover()" onclick="selectRelationshipNode('${node.name}')">
         <rect class="relationship-node-card" width="${node.width}" height="${node.height}" rx="14" fill="${node.tone.fill}" stroke="${node.tone.stroke}"></rect>
         <rect class="relationship-node-count-badge" x="${node.width - 40}" y="10" width="28" height="18" rx="9"></rect>
         <text class="relationship-node-count" x="${node.width - 26}" y="23">${node.row_count}</text>
@@ -980,7 +1075,7 @@ function renderRelationshipMap() {
       <div class="relationship-map-scroll">
         <svg class="relationship-map-svg" viewBox="0 0 ${graph.width} ${graph.height}" role="img" aria-label="Relationship graph of ontology models">
           <defs>
-            <marker id="relationship-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <marker id="relationship-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
               <path d="M 0 0 L 10 5 L 0 10 z" fill="#8b90a0"></path>
             </marker>
           </defs>
@@ -991,7 +1086,7 @@ function renderRelationshipMap() {
       </div>
 
       <div class="detail-card" id="relationship-map-inspector">
-        ${renderRelationshipInspector(null)}
+        ${renderRelationshipInspector(getActiveRelationshipName())}
       </div>
     </div>
   `;
@@ -1991,6 +2086,7 @@ function navigate(path) {
   const parts = path.split('/');
   const section = parts[0];
   const id = parts[1] ? parseInt(parts[1]) : null;
+  state.relationshipMapHover = null;
 
   // Highlight sidebar
   const sidebarSection = id ? section : path;
@@ -2004,6 +2100,7 @@ function navigate(path) {
   } else {
     document.getElementById('content').innerHTML = listViews.users();
   }
+  if (section === 'relationship_map') applyRelationshipFocusState();
 
   history.pushState(null, '', `/${path}`);
 }
@@ -2013,12 +2110,14 @@ window.addEventListener('popstate', () => {
   const parts = path.split('/');
   const section = parts[0];
   const id = parts[1] ? parseInt(parts[1]) : null;
+  state.relationshipMapHover = null;
   document.querySelectorAll('.nav-item').forEach(el => el.classList.toggle('active', el.dataset.view === section));
   if (id && detailViews[section]) {
     document.getElementById('content').innerHTML = detailViews[section](id);
   } else if (listViews[section]) {
     document.getElementById('content').innerHTML = listViews[section]();
   }
+  if (section === 'relationship_map') applyRelationshipFocusState();
 });
 
 document.querySelectorAll('.nav-item').forEach(el => {
