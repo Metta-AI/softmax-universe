@@ -51,13 +51,21 @@ def create_db():
             created_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
 
+        CREATE TABLE commissioners (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            strategy TEXT DEFAULT '',
+            notes TEXT DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
         CREATE TABLE leagues (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             game_id INTEGER NOT NULL REFERENCES games(id),
-            mod_id INTEGER REFERENCES mods(id),
+            mod_id INTEGER NOT NULL REFERENCES mods(id),
+            commissioner_id INTEGER NOT NULL REFERENCES commissioners(id),
             rules TEXT,
-            commissioner TEXT,
             notes TEXT DEFAULT '',
             created_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
@@ -76,14 +84,6 @@ def create_db():
             name TEXT NOT NULL,
             game_id INTEGER NOT NULL REFERENCES games(id),
             owner_id INTEGER NOT NULL REFERENCES users(id),
-            notes TEXT DEFAULT '',
-            created_at TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-
-        CREATE TABLE pools (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            division_id INTEGER NOT NULL REFERENCES divisions(id),
             notes TEXT DEFAULT '',
             created_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
@@ -120,6 +120,7 @@ def create_db():
         CREATE TABLE player_league_memberships (
             player_id INTEGER NOT NULL REFERENCES players(id),
             league_id INTEGER NOT NULL REFERENCES leagues(id),
+            is_avatar INTEGER NOT NULL DEFAULT 0,
             notes TEXT DEFAULT '',
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
             PRIMARY KEY (player_id, league_id)
@@ -200,7 +201,7 @@ def create_db():
 
         CREATE TABLE rounds (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            pool_id INTEGER NOT NULL REFERENCES pools(id),
+            division_id INTEGER NOT NULL REFERENCES divisions(id),
             notes TEXT DEFAULT '',
             results TEXT DEFAULT '{}',
             created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -247,12 +248,13 @@ def create_db():
             PRIMARY KEY (round_id, episode_id)
         );
 
-        CREATE TABLE pool_policies (
-            pool_id INTEGER NOT NULL REFERENCES pools(id),
+        CREATE TABLE division_policies (
+            division_id INTEGER NOT NULL REFERENCES divisions(id),
             policy_id INTEGER NOT NULL REFERENCES policies(id),
+            is_champion INTEGER NOT NULL DEFAULT 0,
             notes TEXT DEFAULT '',
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            PRIMARY KEY (pool_id, policy_id)
+            PRIMARY KEY (division_id, policy_id)
         );
     """)
 
@@ -303,19 +305,32 @@ def create_db():
         ("Four-Score", 1, 2),
         ("Latte", 1, 3),
         ("OverCogged", 1, 2),
+        ("Classic", 2, 2),
+        ("Turbo", 2, 2),
+        ("Standard", 3, 3),
     ]
     c.executemany("INSERT INTO mods (name, game_id, owner_id) VALUES (?, ?, ?)", mods)
 
-    leagues = [
-        ("Base", 1, 1, "Standard rules", "David Bloomin"),
-        ("Clones", 1, 2, "Clone variant with duplicated units", "David Bloomin"),
-        ("Four-Score", 1, 3, "4-player free-for-all, first to 4 wins", "David Bloomin"),
-        ("Pro League", 2, None, "Tournament format, best of 5", "Emmett Shear"),
-        ("Casual", 2, None, "No stakes, practice matches", "Richard Higgins"),
-        ("Championship", 3, None, "Invite only, top 16 policies", "Richard Higgins"),
+    commissioners = [
+        ("Commie 1", "Round-robin with ELO-based seeding. Promote top 2, relegate bottom 2 each season."),
+        ("Commie 2", "Swiss-system tournament, best-of-5 matches. Tiebreaks by head-to-head record."),
+        ("Commie 3", "Open ladder with decay. Inactive policies drop rank after 7 days."),
     ]
     c.executemany(
-        "INSERT INTO leagues (name, game_id, mod_id, rules, commissioner) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO commissioners (name, strategy) VALUES (?, ?)",
+        commissioners,
+    )
+
+    leagues = [
+        ("Base", 1, 1, 1, "Standard rules"),
+        ("Clones", 1, 2, 1, "Clone variant with duplicated units"),
+        ("Four-Score", 1, 3, 1, "4-player free-for-all, first to 4 wins"),
+        ("Pro League", 2, 6, 2, "Tournament format, best of 5"),
+        ("Casual", 2, 7, 3, "No stakes, practice matches"),
+        ("Championship", 3, 8, 3, "Invite only, top 16 policies"),
+    ]
+    c.executemany(
+        "INSERT INTO leagues (name, game_id, mod_id, commissioner_id, rules) VALUES (?, ?, ?, ?, ?)",
         leagues,
     )
 
@@ -334,18 +349,6 @@ def create_db():
         "INSERT INTO divisions (name, league_id, level) VALUES (?, ?, ?)",
         divisions,
     )
-
-    pools = [
-        ("Pool A", 1),    # Base Div 1
-        ("Pool B", 1),
-        ("Gold Pool", 2), # Base Div 2
-        ("Silver Pool", 3), # Clones Div 1
-        ("Starter Pool", 4), # Four-Score Div 1
-        ("Main Draw", 6),  # Pro League Open
-        ("Practice Pool", 8), # Casual Main
-        ("Finals Pool", 9),  # Championship Elite
-    ]
-    c.executemany("INSERT INTO pools (name, division_id) VALUES (?, ?)", pools)
 
     submissions = [
         (1, 1, "2026-04-01 10:00:00", "Initial submission", None, '{"map_size": "large"}'),
@@ -394,15 +397,15 @@ def create_db():
     )
 
     player_league_memberships = [
-        (1, 1), (1, 2),  # daveey in Base, Clones
-        (2, 1),           # daveey_alt in Base
-        (3, 1), (3, 3),  # emmett_main in Base, Four-Score
-        (4, 4),           # emmett_v2 in Pro League
-        (5, 1), (5, 6),  # relh in Base, Championship
-        (6, 5),           # relh_smurf in Casual
+        (1, 1, 1), (1, 2, 0),  # daveey in Base (champion), Clones
+        (2, 1, 0),               # daveey_alt in Base
+        (3, 1, 0), (3, 3, 1),  # emmett_main in Base, Four-Score (champion)
+        (4, 4, 0),               # emmett_v2 in Pro League
+        (5, 1, 0), (5, 6, 1),  # relh in Base, Championship (champion)
+        (6, 5, 0),               # relh_smurf in Casual
     ]
     c.executemany(
-        "INSERT INTO player_league_memberships (player_id, league_id) VALUES (?, ?)",
+        "INSERT INTO player_league_memberships (player_id, league_id, is_avatar) VALUES (?, ?, ?)",
         player_league_memberships,
     )
 
@@ -512,12 +515,12 @@ def create_db():
         (1, "Round 2", '{"AlphaStrike": 2, "TurtleShell": 2, "SniperBot": 2}'),
         (2, "Round 1", '{"DefendBot": 1, "Blitz-v3": 3, "TankBot": 2}'),
         (3, "Round 1", '{"AlphaStrike": 4, "SwarmAI": 0, "ScoutRush": 2}'),
-        (5, "Qualifier", '{"DefendBot": 2, "Blitz-v3": 1, "TankBot": 3}'),
+        (4, "Qualifier", '{"DefendBot": 2, "Blitz-v3": 1, "TankBot": 3}'),
         (6, "Semifinal", '{"AlphaStrike": 5, "SwarmAI": 3, "SniperBot": 4, "FlankerPro": 2}'),
-        (8, "Final", '{"AlphaStrike": 6, "SniperBot": 5, "TankBot": 3, "FlankerPro": 4}'),
+        (9, "Final", '{"AlphaStrike": 6, "SniperBot": 5, "TankBot": 3, "FlankerPro": 4}'),
     ]
     c.executemany(
-        "INSERT INTO rounds (pool_id, notes, results) VALUES (?, ?, ?)",
+        "INSERT INTO rounds (division_id, notes, results) VALUES (?, ?, ?)",
         rounds,
     )
 
@@ -574,17 +577,18 @@ def create_db():
         round_episodes,
     )
 
-    pool_policies = [
-        (1, 1), (1, 4), (1, 8),       # Pool A
-        (2, 2), (2, 5), (2, 9),       # Pool B
-        (3, 1), (3, 6), (3, 10),      # Gold
-        (4, 3), (4, 7), (4, 11),      # Silver
-        (5, 2), (5, 5), (5, 9),       # Starter
-        (6, 1), (6, 6), (6, 8), (6, 11),  # Main Draw
-        (7, 4), (7, 7), (7, 10),      # Practice
-        (8, 1), (8, 8), (8, 9), (8, 11),  # Finals
+    division_policies = [
+        (1, 1, 1), (1, 4, 0), (1, 8, 0), (1, 3, 0),   # Base Carbon (AlphaStrike champion)
+        (2, 2, 0), (2, 5, 1), (2, 9, 0),                 # Base Oxygen (Blitz-v3 champion)
+        (3, 3, 0), (3, 7, 0), (3, 11, 1),                # Clones Silicon (FlankerPro champion)
+        (4, 2, 0), (4, 5, 0), (4, 6, 1),                 # Four-Score Carbon (SwarmAI champion)
+        (5, 9, 0),                                         # Four-Score Germanium
+        (6, 1, 1), (6, 6, 0), (6, 8, 0), (6, 11, 0),   # Pro League Carbon (AlphaStrike champion)
+        (7, 4, 0), (7, 7, 0), (7, 10, 1),                # Pro League Oxygen (ScoutRush champion)
+        (8, 10, 0),                                        # Casual Silicon
+        (9, 1, 0), (9, 8, 1), (9, 9, 0), (9, 11, 0),   # Championship Carbon (SniperBot champion)
     ]
-    c.executemany("INSERT INTO pool_policies (pool_id, policy_id) VALUES (?, ?)", pool_policies)
+    c.executemany("INSERT INTO division_policies (division_id, policy_id, is_champion) VALUES (?, ?, ?)", division_policies)
 
     conn.commit()
     conn.close()

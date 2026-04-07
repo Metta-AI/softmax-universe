@@ -52,6 +52,8 @@ class Handler(SimpleHTTPRequestHandler):
             self.wfile.write(f.read())
 
     def handle_api(self, path):
+        if path == "/api/commissioners":
+            return query("SELECT * FROM commissioners")
         if path == "/api/users":
             return query("SELECT * FROM users")
         if path == "/api/players":
@@ -80,23 +82,17 @@ class Handler(SimpleHTTPRequestHandler):
             """)
         if path == "/api/leagues":
             return query("""
-                SELECT l.*, g.name as game_name, m.name as mod_name
+                SELECT l.*, g.name as game_name, m.name as mod_name,
+                       c.name as commissioner_name, c.strategy as commissioner_strategy
                 FROM leagues l
                 JOIN games g ON l.game_id = g.id
-                LEFT JOIN mods m ON l.mod_id = m.id
+                JOIN mods m ON l.mod_id = m.id
+                JOIN commissioners c ON l.commissioner_id = c.id
             """)
         if path == "/api/divisions":
             return query("""
                 SELECT d.*, l.name as league_name, g.name as game_name
                 FROM divisions d
-                JOIN leagues l ON d.league_id = l.id
-                JOIN games g ON l.game_id = g.id
-            """)
-        if path == "/api/pools":
-            return query("""
-                SELECT p.*, d.name as division_name, d.league_id, l.name as league_name, g.name as game_name
-                FROM pools p
-                JOIN divisions d ON p.division_id = d.id
                 JOIN leagues l ON d.league_id = l.id
                 JOIN games g ON l.game_id = g.id
             """)
@@ -200,11 +196,10 @@ class Handler(SimpleHTTPRequestHandler):
             """)
         if path == "/api/rounds":
             return query("""
-                SELECT r.*, p.name as pool_name, d.name as division_name,
+                SELECT r.*, d.name as division_name,
                        l.name as league_name, g.name as game_name
                 FROM rounds r
-                JOIN pools p ON r.pool_id = p.id
-                JOIN divisions d ON p.division_id = d.id
+                JOIN divisions d ON r.division_id = d.id
                 JOIN leagues l ON d.league_id = l.id
                 JOIN games g ON l.game_id = g.id
             """)
@@ -242,21 +237,21 @@ class Handler(SimpleHTTPRequestHandler):
             """)
         if path == "/api/round_episodes":
             return query("""
-                SELECT re.*, r.notes as round_notes, r.pool_id,
+                SELECT re.*, r.notes as round_notes, r.division_id,
                        e.variant_id, e.seed
                 FROM round_episodes re
                 JOIN rounds r ON re.round_id = r.id
                 JOIN episodes e ON re.episode_id = e.id
             """)
-        if path == "/api/pool_policies":
+        if path == "/api/division_policies":
             return query("""
-                SELECT pp.pool_id, pp.policy_id,
-                       po.name as pool_name,
+                SELECT dp.division_id, dp.policy_id,
+                       d.name as division_name,
                        pol.name as policy_name,
                        pl.name as player_name
-                FROM pool_policies pp
-                JOIN pools po ON pp.pool_id = po.id
-                JOIN policies pol ON pp.policy_id = pol.id
+                FROM division_policies dp
+                JOIN divisions d ON dp.division_id = d.id
+                JOIN policies pol ON dp.policy_id = pol.id
                 JOIN players pl ON pol.player_id = pl.id
             """)
         return None
@@ -331,26 +326,21 @@ class Handler(SimpleHTTPRequestHandler):
                     "INSERT INTO player_league_memberships (player_id, league_id) VALUES (?, ?)",
                     (player_id, league_id),
                 )
-            # Add policy to first pool in first division of this league
+            # Add policy to first division of this league
             div = query(
                 "SELECT id FROM divisions WHERE league_id=? ORDER BY level LIMIT 1",
                 (league_id,),
             )
             if div:
-                pool = query(
-                    "SELECT id FROM pools WHERE division_id=? LIMIT 1",
-                    (div[0]["id"],),
+                existing_dp = query(
+                    "SELECT * FROM division_policies WHERE division_id=? AND policy_id=?",
+                    (div[0]["id"], policy_id),
                 )
-                if pool:
-                    existing_pp = query(
-                        "SELECT * FROM pool_policies WHERE pool_id=? AND policy_id=?",
-                        (pool[0]["id"], policy_id),
+                if not existing_dp:
+                    mutate(
+                        "INSERT INTO division_policies (division_id, policy_id) VALUES (?, ?)",
+                        (div[0]["id"], policy_id),
                     )
-                    if not existing_pp:
-                        mutate(
-                            "INSERT INTO pool_policies (pool_id, policy_id) VALUES (?, ?)",
-                            (pool[0]["id"], policy_id),
-                        )
             return {"id": sub_id}
 
         # POST /api/submissions/:id/place {division_id}

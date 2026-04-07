@@ -303,6 +303,9 @@
   .btn:hover { opacity: 0.9; }
   .btn-sm { padding: 4px 10px; font-size: 11px; }
 
+  details[open] .collapse-arrow { transform: rotate(90deg); }
+  details summary::-webkit-details-marker { display: none; }
+
   .nav-section {
     font-size: 10px;
     color: var(--text2);
@@ -317,47 +320,22 @@
 <div class="app">
   <nav class="sidebar">
     <h1>GameSvc</h1>
-    <div class="nav-item active" data-view="overview">
-      <span class="icon">◈</span> Overview
-    </div>
 
-    <div class="nav-section">Players</div>
     <div class="nav-item" data-view="users">
       <span class="icon">◉</span> Users <span class="badge" id="badge-users">-</span>
     </div>
-    <div class="nav-item" data-view="players">
-      <span class="icon">▣</span> Players <span class="badge" id="badge-players">-</span>
-    </div>
-    <div class="nav-item" data-view="policies">
-      <span class="icon">⬡</span> Policies <span class="badge" id="badge-policies">-</span>
-    </div>
-    <div class="nav-item" data-view="projects">
-      <span class="icon">▧</span> Projects <span class="badge" id="badge-projects">-</span>
-    </div>
-
-    <div class="nav-section">Games</div>
     <div class="nav-item" data-view="games">
       <span class="icon">◆</span> Games <span class="badge" id="badge-games">-</span>
     </div>
-    <div class="nav-item" data-view="mods">
-      <span class="icon">⬢</span> Mods <span class="badge" id="badge-mods">-</span>
-    </div>
-    <div class="nav-item" data-view="variants">
-      <span class="icon">⬡</span> Variants <span class="badge" id="badge-variants">-</span>
-    </div>
-
-    <div class="nav-section">Competition</div>
     <div class="nav-item" data-view="leagues">
       <span class="icon">▥</span> Leagues <span class="badge" id="badge-leagues">-</span>
     </div>
-    <div class="nav-item" data-view="pools">
-      <span class="icon">◎</span> Pools <span class="badge" id="badge-pools">-</span>
+    <div class="nav-item" data-view="commissioners">
+      <span class="icon">⚑</span> Commissioners <span class="badge" id="badge-commissioners">-</span>
     </div>
     <div class="nav-item" data-view="rankings">
       <span class="icon">★</span> Rankings <span class="badge" id="badge-rankings">-</span>
     </div>
-
-    <div class="nav-section">Workflow</div>
     <div class="nav-item" data-view="submissions">
       <span class="icon">◇</span> Submissions <span class="badge" id="badge-submissions">-</span>
     </div>
@@ -367,8 +345,6 @@
     <div class="nav-item" data-view="experience_requests">
       <span class="icon">✦</span> XP Requests <span class="badge" id="badge-experience_requests">-</span>
     </div>
-
-    <div class="nav-section">Episodes</div>
     <div class="nav-item" data-view="episodes">
       <span class="icon">▶</span> Episodes <span class="badge" id="badge-episodes">-</span>
     </div>
@@ -385,23 +361,19 @@
 const state = {};
 
 async function fetchAll() {
-  const endpoints = ['users','players','policies','games','mods','submissions','placements','placement_results','leagues','divisions','pools','rank_users','rank_players','rank_policies','projects','status_updates','experience_requests','variants','mod_variants','episodes','episode_policies','episode_logs','rounds','round_episodes','player_league_memberships','pool_policies'];
+  const endpoints = ['users','players','policies','games','mods','commissioners','submissions','placements','placement_results','leagues','divisions','rank_users','rank_players','rank_policies','projects','status_updates','experience_requests','variants','mod_variants','episodes','episode_policies','episode_logs','rounds','round_episodes','player_league_memberships','division_policies'];
   const results = await Promise.all(endpoints.map(e => fetch(`/api/${e}`).then(r => r.json())));
   endpoints.forEach((e, i) => state[e] = results[i]);
 
   document.getElementById('badge-users').textContent = state.users.length;
-  document.getElementById('badge-players').textContent = state.players.length;
-  document.getElementById('badge-policies').textContent = state.policies.length;
+
   document.getElementById('badge-games').textContent = state.games.length;
-  document.getElementById('badge-mods').textContent = state.mods.length;
   document.getElementById('badge-submissions').textContent = state.submissions.length;
   document.getElementById('badge-placements').textContent = state.placements.length;
   document.getElementById('badge-leagues').textContent = state.leagues.length;
+  document.getElementById('badge-commissioners').textContent = state.commissioners.length;
   if (document.getElementById('badge-divisions')) document.getElementById('badge-divisions').textContent = state.divisions.length;
-  document.getElementById('badge-pools').textContent = state.pools.length;
-  document.getElementById('badge-projects').textContent = state.projects.length;
   document.getElementById('badge-experience_requests').textContent = state.experience_requests.length;
-  document.getElementById('badge-variants').textContent = state.variants.length;
   document.getElementById('badge-rankings').textContent = state.rank_users.length + state.rank_players.length + state.rank_policies.length;
   document.getElementById('badge-episodes').textContent = state.episodes.length;
   document.getElementById('badge-rounds').textContent = state.rounds.length;
@@ -502,24 +474,74 @@ function renderOverview() {
 
 function renderUsers() {
   return `
-    <div class="page-header"><div><h2>Users</h2><div class="subtitle">${state.users.length} registered users</div></div></div>
+    <div class="page-header"><div><h2>Users</h2><div class="subtitle">${state.users.length} users, ${state.players.length} players</div></div></div>
     <div class="action-bar" style="margin-bottom:16px;border-top:none;margin-top:0;padding-top:0">
       <input id="new-user-name" placeholder="Name" />
       <input id="new-user-email" placeholder="Email" />
       <button class="btn btn-sm" onclick="createUser()">+ New User</button>
     </div>
-    <div class="table-container"><table>
-      <thead><tr><th>ID</th><th>Name</th><th>Email</th><th>Players</th></tr></thead>
-      <tbody>${state.users.map(u => {
-        const players = state.players.filter(p => p.user_id === u.id);
-        return `<tr>
-          <td>${u.id}</td>
-          <td>${link('users', u.id, u.name)}</td>
-          <td style="color:var(--text2)">${u.email}</td>
-          <td>${players.map(p => tagLink('players', p.id, p.name, 'green')).join(' ')}</td>
-        </tr>`;
-      }).join('')}</tbody>
-    </table></div>
+    ${state.users.map(u => {
+      const players = state.players.filter(p => p.user_id === u.id);
+      return `<div class="detail-card" style="margin-bottom:16px">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
+          <h3 style="margin:0">${link('users', u.id, u.name)}</h3>
+          <span style="color:var(--text2);font-size:12px">${u.email}</span>
+          <span style="color:var(--text2);font-size:12px;margin-left:auto">${players.length} player${players.length!==1?'s':''}, ${players.reduce((n,p) => n + state.policies.filter(pol => pol.player_id === p.id).length, 0)} policies</span>
+        </div>
+        ${players.map(p => {
+          const pols = state.policies.filter(pol => pol.player_id === p.id);
+          const memberships = state.player_league_memberships.filter(m => m.player_id === p.id);
+          return `<details style="margin-bottom:4px;background:var(--surface2);border-radius:6px;padding:0">
+            <summary style="padding:8px 12px;cursor:pointer;font-size:13px;list-style:none;display:flex;align-items:center;gap:8px">
+              <span style="font-size:10px;color:var(--text2);transition:transform 0.15s" class="collapse-arrow">&#9654;</span>
+              ${link('players', p.id, '<strong>'+p.name+'</strong>')}
+              <span style="color:var(--text2);font-size:12px">${pols.length} polic${pols.length!==1?'ies':'y'}</span>
+              <span style="margin-left:auto">${memberships.map(m => tagLink('leagues', m.league_id, m.league_name, 'blue')).join(' ')}</span>
+            </summary>
+            <div style="padding:0 12px 10px">
+            ${pols.length ? `<div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Policies</div>
+            <div class="table-container" style="margin-bottom:10px"><table>
+              <thead><tr><th>Policy</th><th>Description</th><th>Divisions</th><th>Notes</th></tr></thead>
+              <tbody>${pols.map(pol => {
+                const divPols = state.division_policies.filter(dp => dp.policy_id === pol.id);
+                return `<tr>
+                  <td>${link('policies', pol.id, '<strong>'+pol.name+'</strong>')}</td>
+                  <td style="color:var(--text2)">${pol.description || '-'}</td>
+                  <td>${divPols.map(dp => tagLink('divisions', dp.division_id, dp.division_name, 'purple')).join(' ') || '<span style="color:var(--text2)">-</span>'}</td>
+                  <td style="color:var(--text2);font-size:11px">${pol.notes || '-'}</td>
+                </tr>`;
+              }).join('')}</tbody>
+            </table></div>` : ''}
+            ${(() => {
+              const projects = state.projects.filter(pr => pr.player_id === p.id);
+              if (!projects.length) return '';
+              const statusColor = s => ({active:'green',paused:'orange',completed:'blue',archived:'red'}[s]||'purple');
+              return `<div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Projects</div>
+              ${projects.map(pr => {
+                const updates = state.status_updates.filter(su => su.project_id === pr.id);
+                return `<details style="margin-bottom:4px;background:var(--bg);border-radius:4px">
+                  <summary style="padding:6px 10px;cursor:pointer;font-size:12px;list-style:none;display:flex;align-items:center;gap:8px">
+                    <span style="font-size:9px;color:var(--text2)" class="collapse-arrow">&#9654;</span>
+                    ${link('projects', pr.id, '<strong>'+pr.name+'</strong>')}
+                    <span class="tag tag-${statusColor(pr.status)}">${pr.status}</span>
+                    <span style="color:var(--text2);font-size:11px;margin-left:auto">${updates.length} update${updates.length!==1?'s':''}</span>
+                  </summary>
+                  ${updates.length ? `<div style="padding:4px 10px 8px"><div class="table-container"><table>
+                    <thead><tr><th>Update</th><th>Created</th></tr></thead>
+                    <tbody>${updates.map(su => `<tr>
+                      <td>${su.content}</td>
+                      <td style="color:var(--text2);font-size:11px;white-space:nowrap">${su.created_at}</td>
+                    </tr>`).join('')}</tbody>
+                  </table></div></div>` : '<div style="padding:4px 10px 8px;color:var(--text2);font-size:11px">No updates</div>'}
+                </details>`;
+              }).join('')}`;
+            })()}
+            ${!pols.length && !state.projects.filter(pr => pr.player_id === p.id).length ? '<div style="color:var(--text2);font-size:12px">No policies or projects</div>' : ''}
+            </div>
+          </details>`;
+        }).join('') || '<div style="color:var(--text2);font-size:12px">No players</div>'}
+      </div>`;
+    }).join('')}
   `;
 }
 
@@ -550,16 +572,16 @@ function renderPolicies() {
   return `
     <div class="page-header"><div><h2>Policies</h2><div class="subtitle">${state.policies.length} bots registered</div></div></div>
     <div class="table-container"><table>
-      <thead><tr><th>ID</th><th>Name</th><th>Description</th><th>Player</th><th>User</th><th>Pools</th></tr></thead>
+      <thead><tr><th>ID</th><th>Name</th><th>Description</th><th>Player</th><th>User</th><th>Divisions</th></tr></thead>
       <tbody>${state.policies.map(pol => {
-        const pools = state.pool_policies.filter(pp => pp.policy_id === pol.id);
+        const divPols = state.division_policies.filter(dp => dp.policy_id === pol.id);
         return `<tr>
           <td>${pol.id}</td>
           <td>${link('policies', pol.id, '<strong>'+pol.name+'</strong>')}</td>
           <td style="color:var(--text2);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${pol.description || '-'}</td>
           <td>${link('players', pol.player_id, pol.player_name)}</td>
           <td>${link('users', state.players.find(p=>p.id===pol.player_id)?.user_id, pol.user_name)}</td>
-          <td>${pools.map(pp => tagLink('pools', pp.pool_id, pp.pool_name, 'purple')).join(' ')}</td>
+          <td>${divPols.map(dp => tagLink('divisions', dp.division_id, dp.division_name, 'purple')).join(' ')}</td>
         </tr>`;
       }).join('')}</tbody>
     </table></div>
@@ -620,56 +642,92 @@ function renderMods() {
 function renderGames() {
   return `
     <div class="page-header"><div><h2>Games</h2><div class="subtitle">${state.games.length} active games</div></div></div>
-    <div class="detail-grid">
-      ${state.games.map(g => {
-        const lgs = state.leagues.filter(l => l.game_id === g.id);
-        const mods = state.mods.filter(m => m.game_id === g.id);
-        return `<div class="detail-card">
-          <h3>${link('games', g.id, g.name)}</h3>
-          <div class="meta">${g.description}</div>
-          <div style="display:flex;gap:16px;margin-bottom:12px;font-size:12px">
-            <span>Owner: ${link('users', g.owner_id, '<strong>'+g.owner_name+'</strong>')}</span>
-            <span>Mods: <strong>${mods.length}</strong></span>
-            <span>Leagues: <strong>${lgs.length}</strong></span>
-          </div>
-          <div style="margin-bottom:8px">
-            <div style="font-size:11px;color:var(--text2);margin-bottom:4px">MODS</div>
-            <div class="items">${mods.map(m => pillLink('mods', m.id, m.name, 'orange')).join('')}</div>
-          </div>
-          <div>
-            <div style="font-size:11px;color:var(--text2);margin-bottom:4px">LEAGUES</div>
-            <div class="items">${lgs.map(l => pillLink('leagues', l.id, l.name, 'blue')).join('')}</div>
-          </div>
-        </div>`;
-      }).join('')}
-    </div>
+    ${state.games.map(g => {
+      const mods = state.mods.filter(m => m.game_id === g.id);
+      const lgs = state.leagues.filter(l => l.game_id === g.id);
+      return `<div class="detail-card" style="margin-bottom:20px">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:4px">
+          <h3 style="margin:0">${link('games', g.id, g.name)}</h3>
+          <span style="color:var(--text2);font-size:12px">${g.description}</span>
+          <span style="color:var(--text2);font-size:12px;margin-left:auto">Owner: ${link('users', g.owner_id, g.owner_name)}</span>
+        </div>
+
+        <div class="detail-section"><h3>Mods (${mods.length})</h3>
+        <div class="table-container"><table>
+          <thead><tr><th>Mod</th><th>Owner</th><th>Variants</th><th>Leagues</th></tr></thead>
+          <tbody>${mods.map(m => {
+            const mvs = state.mod_variants.filter(mv => mv.mod_id === m.id);
+            const modLgs = lgs.filter(l => l.mod_id === m.id);
+            return `<tr>
+              <td>${link('mods', m.id, '<strong>'+m.name+'</strong>')}</td>
+              <td>${link('users', m.owner_id, m.owner_name)}</td>
+              <td>${mvs.map(mv => {
+                const canon = mv.canonical ? ' <span class="tag tag-green" style="font-size:9px">canon</span>' : '';
+                return tagLink('variants', mv.variant_id, mv.variant_name, 'purple') + canon;
+              }).join(' ') || '<span style="color:var(--text2)">-</span>'}</td>
+              <td>${modLgs.map(l => tagLink('leagues', l.id, l.name, 'blue')).join(' ') || '<span style="color:var(--text2)">-</span>'}</td>
+            </tr>`;
+          }).join('')}</tbody>
+        </table></div></div>
+
+        <div class="detail-section"><h3>Variants</h3>
+        <div class="table-container"><table>
+          <thead><tr><th>Variant</th><th>Config</th></tr></thead>
+          <tbody>${(() => {
+            const varIds = new Set(state.mod_variants.filter(mv => mods.some(m => m.id === mv.mod_id)).map(mv => mv.variant_id));
+            return [...varIds].map(vid => {
+              const v = state.variants.find(x => x.id === vid);
+              if (!v) return '';
+              return `<tr>
+                <td>${link('variants', v.id, '<strong>'+v.name+'</strong>')}</td>
+                <td style="color:var(--text2);max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${v.config}</td>
+              </tr>`;
+            }).join('');
+          })()}</tbody>
+        </table></div></div>
+      </div>`;
+    }).join('')}
   `;
 }
 
 function renderLeagues() {
+  const byGame = {};
+  state.leagues.forEach(l => {
+    if (!byGame[l.game_id]) byGame[l.game_id] = { game: state.games.find(g => g.id === l.game_id), leagues: [] };
+    byGame[l.game_id].leagues.push(l);
+  });
   return `
     <div class="page-header"><div><h2>Leagues</h2><div class="subtitle">${state.leagues.length} leagues across ${state.games.length} games</div></div></div>
-    <div class="detail-grid">
-      ${state.leagues.map(l => {
-        const divs = state.divisions.filter(d => d.league_id === l.id);
-        return `<div class="detail-card">
-          <h3>${link('leagues', l.id, l.name)}</h3>
-          <div class="meta">${tagLink('games', l.game_id, l.game_name, 'blue')} ${l.mod_id ? tagLink('mods', l.mod_id, l.mod_name, 'orange') : ''} &middot; ${l.commissioner}</div>
-          <div style="color:var(--text2);font-size:12px;margin-bottom:12px">${l.rules}</div>
-          ${divs.map(d => {
-            const pools = state.pools.filter(p => p.division_id === d.id);
-            return `<div style="margin-bottom:8px;padding:8px 10px;background:var(--surface2);border-radius:6px">
-              <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-                ${link('divisions', d.id, '<strong>'+d.name+'</strong>')}
-                <span class="tag tag-purple" style="font-size:10px">L${d.level}</span>
-                <span style="color:var(--text2);font-size:11px;margin-left:auto">${pools.length} pool${pools.length!==1?'s':''}</span>
-              </div>
-              ${pools.length ? `<div class="items">${pools.map(p => tagLink('pools', p.id, p.name, 'green')).join(' ')}</div>` : ''}
-            </div>`;
-          }).join('')}
-        </div>`;
-      }).join('')}
-    </div>
+    ${Object.values(byGame).map(({ game, leagues }) => `
+      <div style="margin-bottom:32px">
+        <div style="margin-bottom:14px;font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:1.5px">${tagLink('games', game.id, game.name, 'blue')} &nbsp; ${game.description}</div>
+        ${leagues.map(l => {
+          const divs = state.divisions.filter(d => d.league_id === l.id);
+          const members = state.player_league_memberships.filter(m => m.league_id === l.id);
+          return `<div class="detail-card" style="margin-bottom:16px">
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:4px">
+              <h3 style="margin:0">${link('leagues', l.id, l.name)}</h3>
+              ${tagLink('mods', l.mod_id, l.mod_name, 'orange')}
+              <span style="color:var(--text2);font-size:12px">${l.rules}</span>
+              <span style="color:var(--text2);font-size:12px;margin-left:auto">Commissioner: ${link('commissioners', l.commissioner_id, l.commissioner_name)}</span>
+            </div>
+            <div style="color:var(--text2);font-size:12px;margin-bottom:12px">Members: ${members.map(m => tagLink('players', m.player_id, m.player_name, 'green')).join(' ') || 'none'}</div>
+            ${divs.map(d => {
+              const pols = state.division_policies.filter(dp => dp.division_id === d.id);
+              return `<div style="margin-bottom:12px;padding:10px 12px;background:var(--surface2);border-radius:6px">
+                <div style="margin-bottom:6px">
+                  ${link('divisions', d.id, '<strong>'+d.name+'</strong>')} <span class="tag tag-purple" style="font-size:10px">L${d.level}</span>
+                  <span style="color:var(--text2);font-size:11px;margin-left:8px">${pols.length} polic${pols.length!==1?'ies':'y'}</span>
+                </div>
+                <div style="margin-left:12px;font-size:12px">
+                  ${pols.map(dp => tagLink('policies', dp.policy_id, dp.policy_name, 'orange')).join(' ')}
+                </div>
+              </div>`;
+            }).join('')}
+          </div>`;
+        }).join('')}
+      </div>
+    `).join('')}
   `;
 }
 
@@ -677,38 +735,19 @@ function renderDivisions() {
   return `
     <div class="page-header"><div><h2>Divisions</h2><div class="subtitle">${state.divisions.length} divisions</div></div></div>
     <div class="table-container"><table>
-      <thead><tr><th>ID</th><th>Name</th><th>League</th><th>Game</th><th>Level</th><th>Pools</th></tr></thead>
+      <thead><tr><th>ID</th><th>Name</th><th>League</th><th>Game</th><th>Level</th><th>Policies</th></tr></thead>
       <tbody>${state.divisions.map(d => {
-        const pools = state.pools.filter(p => p.division_id === d.id);
+        const pols = state.division_policies.filter(dp => dp.division_id === d.id);
         return `<tr>
           <td>${d.id}</td>
           <td>${link('divisions', d.id, '<strong>'+d.name+'</strong>')}</td>
           <td>${link('leagues', d.league_id, d.league_name)}</td>
           <td>${tagLink('games', state.leagues.find(l=>l.id===d.league_id)?.game_id, d.game_name, 'blue')}</td>
           <td><span class="tag tag-purple">${d.level}</span></td>
-          <td>${pools.map(p => tagLink('pools', p.id, p.name, 'green')).join(' ')}</td>
+          <td>${pols.map(dp => tagLink('policies', dp.policy_id, dp.policy_name, 'orange')).join(' ')}</td>
         </tr>`;
       }).join('')}</tbody>
     </table></div>
-  `;
-}
-
-function renderPools() {
-  return `
-    <div class="page-header"><div><h2>Pools</h2><div class="subtitle">${state.pools.length} active pools</div></div></div>
-    <div class="detail-grid">
-      ${state.pools.map(p => {
-        const pols = state.pool_policies.filter(pp => pp.pool_id === p.id);
-        const div = state.divisions.find(d => d.id === p.division_id);
-        return `<div class="detail-card">
-          <h3>${link('pools', p.id, p.name)}</h3>
-          <div class="meta">${tagLink('games', state.leagues.find(l=>l.id===div?.league_id)?.game_id, p.game_name, 'blue')} &middot; ${link('leagues', div?.league_id, p.league_name)} &middot; ${link('divisions', p.division_id, p.division_name)}</div>
-          <div class="items">
-            ${pols.map((pp, i) => pillLink('policies', pp.policy_id, `${pp.policy_name} <span style="color:var(--text2)">(${pp.player_name})</span>`, ['accent2','green','orange','blue','red'][i % 5])).join('')}
-          </div>
-        </div>`;
-      }).join('')}
-    </div>
   `;
 }
 
@@ -757,17 +796,29 @@ function renderVariants() {
   return `
     <div class="page-header"><div><h2>Variants</h2><div class="subtitle">${state.variants.length} variants</div></div></div>
     <div class="table-container"><table>
-      <thead><tr><th>ID</th><th>Name</th><th>Config</th><th>Episodes</th></tr></thead>
+      <thead><tr><th>ID</th><th>Name</th><th>Config</th></tr></thead>
       <tbody>${state.variants.map(v => {
-        const ecount = state.episodes.filter(e => e.variant_id === v.id).length;
         return `<tr>
           <td>${v.id}</td>
           <td>${link('variants', v.id, '<strong>'+v.name+'</strong>')}</td>
           <td style="color:var(--text2);max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${v.config}</td>
-          <td><span class="tag tag-green">${ecount}</span></td>
         </tr>`;
       }).join('')}</tbody>
     </table></div>
+  `;
+}
+
+function renderCommissioners() {
+  return `
+    <div class="page-header"><div><h2>Commissioners</h2><div class="subtitle">${state.commissioners.length} commissioners</div></div></div>
+    ${state.commissioners.map(c => {
+      const lgs = state.leagues.filter(l => l.commissioner_id === c.id);
+      return `<div class="detail-card" style="margin-bottom:16px">
+        <h3>${link('commissioners', c.id, c.name)}</h3>
+        <div style="color:var(--text2);font-size:12px;margin:8px 0">${c.strategy || '-'}</div>
+        <div class="items">${lgs.map(l => tagLink('leagues', l.id, l.name, 'blue')).join(' ') || '<span style="color:var(--text2);font-size:12px">No leagues</span>'}</div>
+      </div>`;
+    }).join('')}
   `;
 }
 
@@ -834,14 +885,13 @@ function renderRounds() {
   return `
     <div class="page-header"><div><h2>Rounds</h2><div class="subtitle">${state.rounds.length} rounds played</div></div></div>
     <div class="table-container"><table>
-      <thead><tr><th>ID</th><th>Pool</th><th>Division</th><th>League</th><th>Notes</th><th>Results</th></tr></thead>
+      <thead><tr><th>ID</th><th>Division</th><th>League</th><th>Notes</th><th>Results</th></tr></thead>
       <tbody>${state.rounds.map(r => {
         let res = {}; try { res = JSON.parse(r.results || '{}'); } catch(e) {}
         const top = Object.entries(res).sort((a,b) => b[1]-a[1]).slice(0, 3);
         return `<tr>
           <td>${link('rounds', r.id, r.id)}</td>
-          <td>${tagLink('pools', r.pool_id, r.pool_name, 'green')}</td>
-          <td>${r.division_name}</td>
+          <td>${tagLink('divisions', r.division_id, r.division_name, 'green')}</td>
           <td>${r.league_name}</td>
           <td style="color:var(--text2)">${r.notes || '-'}</td>
           <td>${top.map(([name,score]) => `<span class="tag tag-purple">${name}: ${score}</span> `).join('')}</td>
@@ -904,10 +954,10 @@ function renderPlayerDetail(id) {
       </div>
       <div class="detail-section"><h3>Policies (${pols.length})</h3>
         <div class="items">${pols.map(pol => {
-          const pools = state.pool_policies.filter(pp => pp.policy_id === pol.id);
+          const divPols = state.division_policies.filter(dp => dp.policy_id === pol.id);
           return `<div class="detail-card" style="flex:1;min-width:200px">
             <h3>${link('policies', pol.id, pol.name)}</h3>
-            <div class="items" style="margin-top:8px">${pools.map(pp => tagLink('pools', pp.pool_id, pp.pool_name, 'purple')).join(' ')}</div>
+            <div class="items" style="margin-top:8px">${divPols.map(dp => tagLink('divisions', dp.division_id, dp.division_name, 'purple')).join(' ')}</div>
           </div>`;
         }).join('')}</div>
       </div>
@@ -928,7 +978,7 @@ function renderPlayerDetail(id) {
 function renderPolicyDetail(id) {
   const pol = state.policies.find(x => x.id === id);
   if (!pol) return '<div class="loading">Policy not found</div>';
-  const pools = state.pool_policies.filter(pp => pp.policy_id === id);
+  const divPols = state.division_policies.filter(dp => dp.policy_id === id);
   return `
     <div class="breadcrumb"><a onclick="navigate('policies')">Policies</a> / ${pol.name}</div>
     <div class="page-header"><div><h2>${pol.name}</h2><div class="subtitle">Bot policy</div></div></div>
@@ -951,8 +1001,8 @@ function renderPolicyDetail(id) {
           `<div class="pill clickable" onclick="navigate('placements/${p.id}')"><span class="dot" style="background:var(--blue)"></span>${p.league_name}${p.division_name ? ' → '+p.division_name : ''}</div>`
         ).join('')}</div>
       </div>
-      <div class="detail-section"><h3>Pools (${pools.length})</h3>
-        <div class="items">${pools.map(pp => tagLink('pools', pp.pool_id, pp.pool_name, 'purple')).join(' ')}</div>
+      <div class="detail-section"><h3>Divisions (${divPols.length})</h3>
+        <div class="items">${divPols.map(dp => tagLink('divisions', dp.division_id, dp.division_name, 'purple')).join(' ')}</div>
       </div>
     </div>
   `;
@@ -979,7 +1029,7 @@ function renderGameDetail(id) {
           const divs = state.divisions.filter(d => d.league_id === l.id);
           return `<div class="detail-card" style="flex:1;min-width:250px">
             <h3>${link('leagues', l.id, l.name)}</h3>
-            <div class="meta">Commissioner: ${l.commissioner} &middot; ${l.rules}</div>
+            <div class="meta">Commissioner: ${link('commissioners', l.commissioner_id, l.commissioner_name)} &middot; ${l.rules}</div>
             <div class="items">${divs.map(d => tagLink('divisions', d.id, d.name+' (L'+d.level+')', 'green')).join(' ')}</div>
           </div>`;
         }).join('')}</div>
@@ -1047,6 +1097,25 @@ function renderSubmissionDetail(id) {
   `;
 }
 
+function renderCommissionerDetail(id) {
+  const c = state.commissioners.find(x => x.id === id);
+  if (!c) return '<div class="loading">Commissioner not found</div>';
+  const lgs = state.leagues.filter(l => l.commissioner_id === c.id);
+  return `
+    <div class="breadcrumb"><a onclick="navigate('commissioners')">Commissioners</a> / ${c.name}</div>
+    <div class="page-header"><div><h2>${c.name}</h2><div class="subtitle">Commissioner</div></div></div>
+    <div class="detail-card">
+      <div class="field-grid">
+        <div class="label">ID</div><div>${c.id}</div>
+        <div class="label">Strategy</div><div>${c.strategy || '<span style="color:var(--text2)">-</span>'}</div>
+      </div>
+      <div class="detail-section"><h3>Leagues (${lgs.length})</h3>
+        <div class="items">${lgs.map(l => tagLink('leagues', l.id, l.name + ' (' + l.game_name + ')', 'blue')).join(' ') || '<span style="color:var(--text2)">No leagues</span>'}</div>
+      </div>
+    </div>
+  `;
+}
+
 function renderModDetail(id) {
   const m = state.mods.find(x => x.id === id);
   if (!m) return '<div class="loading">Mod not found</div>';
@@ -1070,6 +1139,8 @@ function renderLeagueDetail(id) {
   const l = state.leagues.find(x => x.id === id);
   if (!l) return '<div class="loading">League not found</div>';
   const divs = state.divisions.filter(d => d.league_id === id);
+  const subs = state.submissions.filter(s => s.league_id === id);
+  const pls = state.placements.filter(p => p.league_id === id);
   return `
     <div class="breadcrumb"><a onclick="navigate('leagues')">Leagues</a> / ${l.name}</div>
     <div class="page-header"><div><h2>${l.name}</h2><div class="subtitle">${l.rules}</div></div></div>
@@ -1077,21 +1148,51 @@ function renderLeagueDetail(id) {
       <div class="field-grid">
         <div class="label">ID</div><div>${l.id}</div>
         <div class="label">Game</div><div>${link('games', l.game_id, l.game_name)}</div>
-        <div class="label">Mod</div><div>${l.mod_id ? link('mods', l.mod_id, l.mod_name) : '-'}</div>
-        <div class="label">Commissioner</div><div>${l.commissioner}</div>
+        <div class="label">Mod</div><div>${link('mods', l.mod_id, l.mod_name)}</div>
+        <div class="label">Commissioner</div><div>${link('commissioners', l.commissioner_id, l.commissioner_name)}</div>
         <div class="label">Rules</div><div>${l.rules}</div>
       </div>
       <div class="detail-section"><h3>Members</h3>
         <div class="items">${state.player_league_memberships.filter(m => m.league_id === id).map(m => tagLink('players', m.player_id, m.player_name, 'green')).join(' ')}</div>
       </div>
       <div class="detail-section"><h3>Divisions (${divs.length})</h3>
-        <div class="items">${divs.map(d => {
-          const pools = state.pools.filter(p => p.division_id === d.id);
-          return `<div class="detail-card" style="flex:1;min-width:250px">
-            <h3>${link('divisions', d.id, d.name)} <span class="tag tag-purple">Level ${d.level}</span></h3>
-            <div class="items" style="margin-top:8px">${pools.map(p => tagLink('pools', p.id, p.name, 'green')).join(' ')}</div>
+        ${divs.map(d => {
+          const pols = state.division_policies.filter(dp => dp.division_id === d.id);
+          return `<div style="margin-bottom:12px;padding:10px 12px;background:var(--surface2);border-radius:6px">
+            <div style="margin-bottom:6px">${link('divisions', d.id, '<strong>'+d.name+'</strong>')} <span class="tag tag-purple" style="font-size:10px">L${d.level}</span>
+              <span style="color:var(--text2);font-size:11px;margin-left:8px">${pols.length} polic${pols.length!==1?'ies':'y'}</span>
+            </div>
+            <div style="margin-left:12px;font-size:12px">
+              ${pols.map(dp => tagLink('policies', dp.policy_id, dp.policy_name, 'orange')).join(' ')}
+            </div>
           </div>`;
-        }).join('')}</div>
+        }).join('')}
+      </div>
+      <div class="detail-section"><h3>Submissions (${subs.length})</h3>
+        ${subs.length ? `<div class="table-container"><table>
+          <thead><tr><th>ID</th><th>Status</th><th>Policy</th><th>Player</th><th>Predecessor</th><th>Time</th><th>Notes</th></tr></thead>
+          <tbody>${subs.map(s => `<tr>
+            <td>${link('submissions', s.id, s.id)}</td>
+            <td><span class="tag tag-${s.status==='placed'?'green':s.status==='rejected'?'red':'orange'}">${s.status}</span></td>
+            <td>${tagLink('policies', s.policy_id, s.policy_name, 'orange')}</td>
+            <td>${link('players', s.player_id, s.player_name)}</td>
+            <td>${s.pred_policy_id ? tagLink('policies', s.pred_policy_id, s.pred_policy_name, 'purple') : '<span style="color:var(--text2)">-</span>'}</td>
+            <td style="color:var(--text2);font-size:11px;white-space:nowrap">${s.timestamp}</td>
+            <td style="color:var(--text2)">${s.notes || '-'}</td>
+          </tr>`).join('')}</tbody>
+        </table></div>` : '<span style="color:var(--text2)">No submissions</span>'}
+      </div>
+      <div class="detail-section"><h3>Placements (${pls.length})</h3>
+        ${pls.length ? `<div class="table-container"><table>
+          <thead><tr><th>ID</th><th>Policy</th><th>Player</th><th>Division</th><th>Notes</th></tr></thead>
+          <tbody>${pls.map(pl => `<tr>
+            <td>${link('placements', pl.id, pl.id)}</td>
+            <td>${tagLink('policies', pl.policy_id, pl.policy_name, 'orange')}</td>
+            <td>${link('players', pl.player_id, pl.player_name)}</td>
+            <td>${pl.division_id ? tagLink('divisions', pl.division_id, pl.division_name, 'green') : '<span style="color:var(--text2)">-</span>'}</td>
+            <td style="color:var(--text2)">${pl.notes || '-'}</td>
+          </tr>`).join('')}</tbody>
+        </table></div>` : '<span style="color:var(--text2)">No placements</span>'}
       </div>
     </div>
   `;
@@ -1100,7 +1201,8 @@ function renderLeagueDetail(id) {
 function renderDivisionDetail(id) {
   const d = state.divisions.find(x => x.id === id);
   if (!d) return '<div class="loading">Division not found</div>';
-  const pools = state.pools.filter(p => p.division_id === id);
+  const pols = state.division_policies.filter(dp => dp.division_id === id);
+  const rounds = state.rounds.filter(r => r.division_id === id);
   return `
     <div class="breadcrumb"><a onclick="navigate('divisions')">Divisions</a> / ${d.name}</div>
     <div class="page-header"><div><h2>${d.name}</h2><div class="subtitle">Level ${d.level}</div></div></div>
@@ -1111,40 +1213,11 @@ function renderDivisionDetail(id) {
         <div class="label">Game</div><div>${tagLink('games', state.leagues.find(l=>l.id===d.league_id)?.game_id, d.game_name, 'blue')}</div>
         <div class="label">Level</div><div>${d.level}</div>
       </div>
-      <div class="detail-section"><h3>Pools (${pools.length})</h3>
-        <div class="items">${pools.map(p => {
-          const pols = state.pool_policies.filter(pp => pp.pool_id === p.id);
-          return `<div class="detail-card" style="flex:1;min-width:250px">
-            <h3>${link('pools', p.id, p.name)}</h3>
-            <div class="items" style="margin-top:8px">${pols.map(pp => pillLink('policies', pp.policy_id, `${pp.policy_name} <span style="color:var(--text2)">(${pp.player_name})</span>`, 'accent2')).join('')}</div>
-          </div>`;
-        }).join('')}</div>
-      </div>
-    </div>
-  `;
-}
-
-function renderPoolDetail(id) {
-  const p = state.pools.find(x => x.id === id);
-  if (!p) return '<div class="loading">Pool not found</div>';
-  const pols = state.pool_policies.filter(pp => pp.pool_id === id);
-  const div = state.divisions.find(d => d.id === p.division_id);
-  const league = div ? state.leagues.find(l => l.id === div.league_id) : null;
-  return `
-    <div class="breadcrumb"><a onclick="navigate('pools')">Pools</a> / ${p.name}</div>
-    <div class="page-header"><div><h2>${p.name}</h2><div class="subtitle">${p.game_name} &middot; ${p.league_name} &middot; ${p.division_name}</div></div></div>
-    <div class="detail-card">
-      <div class="field-grid">
-        <div class="label">ID</div><div>${p.id}</div>
-        <div class="label">Game</div><div>${link('games', league?.game_id, p.game_name)}</div>
-        <div class="label">League</div><div>${link('leagues', div?.league_id, p.league_name)}</div>
-        <div class="label">Division</div><div>${link('divisions', p.division_id, p.division_name)}</div>
-      </div>
       <div class="detail-section"><h3>Policies (${pols.length})</h3>
-        <div class="items">${pols.map((pp, i) => pillLink('policies', pp.policy_id, `${pp.policy_name} <span style="color:var(--text2)">(${pp.player_name})</span>`, ['accent2','green','orange','blue','red'][i % 5])).join('')}</div>
+        <div class="items">${pols.map((dp, i) => pillLink('policies', dp.policy_id, `${dp.policy_name} <span style="color:var(--text2)">(${dp.player_name})</span>`, ['accent2','green','orange','blue','red'][i % 5])).join('')}</div>
       </div>
-      <div class="detail-section"><h3>Rounds</h3>
-        <div class="items">${state.rounds.filter(r => r.pool_id === id).map(r =>
+      <div class="detail-section"><h3>Rounds (${rounds.length})</h3>
+        <div class="items">${rounds.map(r =>
           `<div class="pill clickable" onclick="navigate('rounds/${r.id}')"><span class="dot" style="background:var(--accent2)"></span>${r.notes || 'Round #'+r.id}</div>`
         ).join('') || '<span style="color:var(--text2)">No rounds yet</span>'}</div>
       </div>
@@ -1275,12 +1348,11 @@ function renderRoundDetail(id) {
   const sorted = Object.entries(res).sort((a,b) => b[1]-a[1]);
   return `
     <div class="breadcrumb"><a onclick="navigate('rounds')">Rounds</a> / #${r.id}</div>
-    <div class="page-header"><div><h2>${r.notes || 'Round #'+r.id}</h2><div class="subtitle">${r.pool_name} &middot; ${r.division_name} &middot; ${r.league_name}</div></div></div>
+    <div class="page-header"><div><h2>${r.notes || 'Round #'+r.id}</h2><div class="subtitle">${r.division_name} &middot; ${r.league_name}</div></div></div>
     <div class="detail-card">
       <div class="field-grid">
         <div class="label">ID</div><div>${r.id}</div>
-        <div class="label">Pool</div><div>${link('pools', r.pool_id, r.pool_name)}</div>
-        <div class="label">Division</div><div>${r.division_name}</div>
+        <div class="label">Division</div><div>${tagLink('divisions', r.division_id, r.division_name, 'green')}</div>
         <div class="label">League</div><div>${r.league_name}</div>
         <div class="label">Game</div><div>${r.game_name}</div>
         <div class="label">Notes</div><div>${r.notes || '<span style="color:var(--text2)">-</span>'}</div>
@@ -1305,8 +1377,8 @@ function renderRoundDetail(id) {
 }
 
 // --- Routing ---
-const listViews = { overview: renderOverview, users: renderUsers, players: renderPlayers, policies: renderPolicies, submissions: renderSubmissions, placements: renderPlacements, games: renderGames, mods: renderMods, leagues: renderLeagues, divisions: renderDivisions, pools: renderPools, projects: renderProjects, experience_requests: renderExperienceRequests, rankings: renderRankings, variants: renderVariants, episodes: renderEpisodes, rounds: renderRounds };
-const detailViews = { users: renderUserDetail, players: renderPlayerDetail, policies: renderPolicyDetail, submissions: renderSubmissionDetail, placements: renderPlacementDetail, games: renderGameDetail, mods: renderModDetail, leagues: renderLeagueDetail, divisions: renderDivisionDetail, pools: renderPoolDetail, projects: renderProjectDetail, experience_requests: renderExperienceRequestDetail, variants: renderVariantDetail, episodes: renderEpisodeDetail, rounds: renderRoundDetail };
+const listViews = { users: renderUsers, players: renderPlayers, policies: renderPolicies, submissions: renderSubmissions, placements: renderPlacements, games: renderGames, mods: renderMods, commissioners: renderCommissioners, leagues: renderLeagues, divisions: renderDivisions, projects: renderProjects, experience_requests: renderExperienceRequests, rankings: renderRankings, variants: renderVariants, episodes: renderEpisodes, rounds: renderRounds };
+const detailViews = { users: renderUserDetail, players: renderPlayerDetail, policies: renderPolicyDetail, submissions: renderSubmissionDetail, placements: renderPlacementDetail, games: renderGameDetail, mods: renderModDetail, commissioners: renderCommissionerDetail, leagues: renderLeagueDetail, divisions: renderDivisionDetail, projects: renderProjectDetail, experience_requests: renderExperienceRequestDetail, variants: renderVariantDetail, episodes: renderEpisodeDetail, rounds: renderRoundDetail };
 
 function navigate(path) {
   const parts = path.split('/');
@@ -1323,14 +1395,14 @@ function navigate(path) {
   } else if (listViews[section]) {
     document.getElementById('content').innerHTML = listViews[section]();
   } else {
-    document.getElementById('content').innerHTML = listViews.overview();
+    document.getElementById('content').innerHTML = listViews.users();
   }
 
   history.pushState(null, '', `/${path}`);
 }
 
 window.addEventListener('popstate', () => {
-  const path = location.pathname.slice(1) || 'overview';
+  const path = location.pathname.slice(1) || 'users';
   const parts = path.split('/');
   const section = parts[0];
   const id = parts[1] ? parseInt(parts[1]) : null;
@@ -1347,7 +1419,7 @@ document.querySelectorAll('.nav-item').forEach(el => {
 });
 
 fetchAll().then(() => {
-  const path = location.pathname.slice(1) || 'overview';
+  const path = location.pathname.slice(1) || 'users';
   navigate(path);
 });
 </script>
