@@ -233,11 +233,14 @@ class Handler(SimpleHTTPRequestHandler):
                 JOIN players p ON pr.player_id = p.id
                 ORDER BY su.created_at DESC
             """)
+        if path == "/api/mettagrid_env_configs":
+            return query("SELECT * FROM mettagrid_env_configs")
         if path == "/api/variants":
             return query("""
-                SELECT v.*, g.name as game_name
+                SELECT v.*, g.name as game_name, ec.config, ec.config_hash
                 FROM variants v
                 JOIN games g ON v.game_id = g.id
+                JOIN mettagrid_env_configs ec ON v.env_config_id = ec.id
             """)
         if path == "/api/mod_variants":
             return query("""

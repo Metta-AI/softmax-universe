@@ -60,11 +60,19 @@ def create_db():
             created_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
 
+        CREATE TABLE mettagrid_env_configs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            config_hash TEXT NOT NULL,
+            config TEXT NOT NULL DEFAULT '{}',
+            notes TEXT DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
         CREATE TABLE variants (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             game_id INTEGER NOT NULL REFERENCES games(id),
-            config TEXT DEFAULT '',
+            env_config_id INTEGER NOT NULL REFERENCES mettagrid_env_configs(id),
             notes TEXT DEFAULT '',
             created_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
@@ -424,12 +432,19 @@ def create_db():
         player_league_memberships,
     )
 
-    variants = [
-        ("Standard 1v1", 1, '{"map": "arena", "players": 2, "turns": 100}'),
-        ("2v2 Teams", 1, '{"map": "battlefield", "players": 4, "turns": 200}'),
-        ("FFA Chaos", 1, '{"map": "colosseum", "players": 6, "turns": 150}'),
+    env_configs = [
+        ("abc123", '{"map": "arena", "players": 2, "turns": 100}'),
+        ("def456", '{"map": "battlefield", "players": 4, "turns": 200}'),
+        ("ghi789", '{"map": "colosseum", "players": 6, "turns": 150}'),
     ]
-    c.executemany("INSERT INTO variants (name, game_id, config) VALUES (?, ?, ?)", variants)
+    c.executemany("INSERT INTO mettagrid_env_configs (config_hash, config) VALUES (?, ?)", env_configs)
+
+    variants = [
+        ("Standard 1v1", 1, 1),
+        ("2v2 Teams", 1, 2),
+        ("FFA Chaos", 1, 3),
+    ]
+    c.executemany("INSERT INTO variants (name, game_id, env_config_id) VALUES (?, ?, ?)", variants)
 
     projects = [
         (1, "Rush Meta Research", "active"),

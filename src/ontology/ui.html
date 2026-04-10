@@ -550,7 +550,8 @@ const OBJECT_DESCRIPTIONS = {
   divisions: 'tiers within a league that hold placed policies and division champions',
   projects: 'player-owned workstreams for improving or researching policies, tracked by status updates',
   episode_requests: 'requests to run episodes for selected policies under a specific config, seed, and episode count',
-  variants: 'reusable configuration bundles linked to mods and used to generate episodes',
+  mettagrid_env_configs: 'content-addressed environment configurations used by variants',
+  variants: 'named environment configurations that wrap a mettagrid env config',
   mod_variants: 'joins mods to the variants they support, with an optional canonical marker',
     rankings: 'time-stamped policy standings, plus derived best-per-player and best-per-user leaderboards',
   episodes: 'individual simulated games for one variant and seed, with policy results and logs',
@@ -602,7 +603,7 @@ const RELATIONSHIP_CATEGORIES = [
     key: 'config',
     title: 'GAME CONFIGURATION',
     toneIndex: 1,
-    tables: ['games', 'mods', 'variants', 'mod_variants'],
+    tables: ['games', 'mods', 'variants', 'mod_variants', 'mettagrid_env_configs'],
   },
   {
     key: 'competition',
@@ -619,7 +620,7 @@ const RELATIONSHIP_CATEGORIES = [
 ];
 
 async function fetchAll() {
-  const endpoints = ['users','players','policy_versions','games','mods','submissions','division_entries','division_entry_events','leagues','divisions','rank_users','rank_players','round_results','projects','status_updates','episode_requests','variants','mod_variants','episodes','episode_policies','episode_logs','rounds','round_episodes','player_league_memberships','policy_pools','policy_pool_entries','episode_request_policies','schema'];
+  const endpoints = ['users','players','policy_versions','games','mods','submissions','division_entries','division_entry_events','leagues','divisions','rank_users','rank_players','round_results','projects','status_updates','episode_requests','variants','mod_variants','mettagrid_env_configs','episodes','episode_policies','episode_logs','rounds','round_episodes','player_league_memberships','policy_pools','policy_pool_entries','episode_request_policies','schema'];
   const results = await Promise.all(endpoints.map(async e => {
     const response = await fetch(`/api/${e}`);
     const text = await response.text();
