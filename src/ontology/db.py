@@ -64,6 +64,9 @@ def create_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             config_hash TEXT NOT NULL,
             config TEXT NOT NULL DEFAULT '{}',
+            name TEXT,
+            compat_version TEXT,
+            num_agents INTEGER,
             notes TEXT DEFAULT '',
             created_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
@@ -109,14 +112,14 @@ def create_db():
             created_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
 
-        CREATE TABLE submissions (
+        CREATE TABLE league_submissions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             policy_version_id INTEGER NOT NULL REFERENCES policy_versions(id),
             league_id INTEGER NOT NULL REFERENCES leagues(id),
-            timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+            player_id INTEGER REFERENCES players(id),
             notes TEXT DEFAULT '',
             preferences TEXT DEFAULT '{}',
-            status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'placed', 'rejected')),
+            status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'processing', 'placed', 'rejected', 'withdrawn')),
             division_entry_id INTEGER REFERENCES division_entries(id),
             created_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
@@ -139,8 +142,8 @@ def create_db():
             league_id INTEGER NOT NULL REFERENCES leagues(id),
             player_id INTEGER REFERENCES players(id),
             from_division_id INTEGER REFERENCES divisions(id),
-            to_division_id INTEGER NOT NULL REFERENCES divisions(id),
-            division_entry_id INTEGER REFERENCES division_entries(id),
+            to_division_id INTEGER REFERENCES divisions(id),
+            division_entry_id INTEGER NOT NULL REFERENCES division_entries(id),
             event_type TEXT NOT NULL DEFAULT 'place' CHECK(event_type IN ('place', 'move', 'remove', 'promote', 'demote')),
             notes TEXT DEFAULT '',
             created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -174,47 +177,33 @@ def create_db():
 
         CREATE TABLE episodes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            episode_request_id INTEGER REFERENCES episode_requests(id),
-            seed INTEGER NOT NULL,
-            score TEXT DEFAULT '{}',
+            data_uri TEXT,
+            replay_url TEXT,
+            primary_pv_id INTEGER REFERENCES policy_versions(id),
             notes TEXT DEFAULT '',
             created_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
 
         CREATE TABLE episode_policies (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            episode_id INTEGER NOT NULL REFERENCES episodes(id),
             policy_version_id INTEGER NOT NULL REFERENCES policy_versions(id),
-            episode_id INTEGER NOT NULL REFERENCES episodes(id),
-            agent_id INTEGER NOT NULL DEFAULT 0,
-            score REAL DEFAULT 0,
-            logs TEXT DEFAULT '',
-            notes TEXT DEFAULT '',
-            created_at TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-
-        CREATE TABLE episode_logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            episode_id INTEGER NOT NULL REFERENCES episodes(id),
-            log_uri TEXT NOT NULL,
-            notes TEXT DEFAULT '',
-            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            num_agents INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (episode_id, policy_version_id)
         );
 
         CREATE TABLE rounds (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             division_id INTEGER NOT NULL REFERENCES divisions(id),
+            round_number INTEGER NOT NULL,
+            round_config TEXT DEFAULT '{}',
             round_display TEXT DEFAULT '{}',
+            status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'claimed', 'running', 'completed', 'failed', 'cancelled')),
+            error TEXT,
+            started_at TEXT,
+            completed_at TEXT,
             notes TEXT DEFAULT '',
-            results TEXT DEFAULT '{}',
             created_at TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-
-        CREATE TABLE round_episodes (
-            round_id INTEGER NOT NULL REFERENCES rounds(id),
-            episode_id INTEGER NOT NULL REFERENCES episodes(id),
-            notes TEXT DEFAULT '',
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            PRIMARY KEY (round_id, episode_id)
         );
 
         CREATE TABLE round_results (
@@ -246,7 +235,7 @@ def create_db():
 
         CREATE TABLE policy_pool_entries (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            policy_pool_id INTEGER NOT NULL REFERENCES policy_pools(id),
+            pool_id INTEGER NOT NULL REFERENCES policy_pools(id),
             division_entry_id INTEGER REFERENCES division_entries(id),
             policy_version_id INTEGER NOT NULL REFERENCES policy_versions(id),
             player_id INTEGER REFERENCES players(id),
@@ -257,7 +246,7 @@ def create_db():
 
         CREATE TABLE episode_requests (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            policy_pool_id INTEGER REFERENCES policy_pools(id),
+            pool_id INTEGER REFERENCES policy_pools(id),
             variant_id INTEGER NOT NULL REFERENCES variants(id),
             requester_user_id INTEGER NOT NULL REFERENCES users(id),
             player_id INTEGER REFERENCES players(id),
@@ -381,21 +370,20 @@ def create_db():
         division_entries,
     )
 
-    # submissions now point to division_entries via division_entry_id
-    submissions = [
-        (1, 1, "2026-04-01 10:00:00", "Initial submission", '{"map_size": "large"}', "placed", 1),
-        (2, 1, "2026-04-01 11:00:00", "Defensive variant", '{}', "placed", 2),
-        (3, 1, "2026-04-02 09:00:00", "", '{"timeout": 30}', "placed", 3),
-        (5, 2, "2026-04-02 14:00:00", "Testing blitz on clones", '{}', "placed", 4),
-        (6, 3, "2026-04-03 08:00:00", "Swarm v2 for four-score", '{"team_size": 4}', "placed", 5),
-        (8, 1, "2026-04-03 12:00:00", "Sniper counter-meta", '{}', "placed", 6),
-        (9, 4, "2026-04-04 10:00:00", "", '{}', "placed", 7),
-        (1, 2, "2026-04-05 09:00:00", "Updated alpha for clones", '{"clone_count": 3}', "pending", None),
-        (10, 6, "2026-04-05 15:00:00", "Championship entry", '{}', "placed", 8),
+    league_submissions = [
+        (1, 1, 1, "Initial submission", '{"map_size": "large"}', "placed", 1),
+        (2, 1, 1, "Defensive variant", '{}', "placed", 2),
+        (3, 1, 2, "", '{"timeout": 30}', "placed", 3),
+        (5, 2, 3, "Testing blitz on clones", '{}', "placed", 4),
+        (6, 3, 4, "Swarm v2 for four-score", '{"team_size": 4}', "placed", 5),
+        (8, 1, 5, "Sniper counter-meta", '{}', "placed", 6),
+        (9, 4, 5, "", '{}', "placed", 7),
+        (1, 2, 1, "Updated alpha for clones", '{"clone_count": 3}', "pending", None),
+        (10, 6, 6, "Championship entry", '{}', "placed", 8),
     ]
     c.executemany(
-        "INSERT INTO submissions (policy_version_id, league_id, timestamp, notes, preferences, status, division_entry_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        submissions,
+        "INSERT INTO league_submissions (policy_version_id, league_id, player_id, notes, preferences, status, division_entry_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        league_submissions,
     )
 
     division_entry_events = [
@@ -433,11 +421,11 @@ def create_db():
     )
 
     env_configs = [
-        ("abc123", '{"map": "arena", "players": 2, "turns": 100}'),
-        ("def456", '{"map": "battlefield", "players": 4, "turns": 200}'),
-        ("ghi789", '{"map": "colosseum", "players": 6, "turns": 150}'),
+        ("abc123", '{"map": "arena", "players": 2, "turns": 100}', "arena-2p", "v1", 2),
+        ("def456", '{"map": "battlefield", "players": 4, "turns": 200}', "battlefield-4p", "v1", 4),
+        ("ghi789", '{"map": "colosseum", "players": 6, "turns": 150}', "colosseum-6p", "v1", 6),
     ]
-    c.executemany("INSERT INTO mettagrid_env_configs (config_hash, config) VALUES (?, ?)", env_configs)
+    c.executemany("INSERT INTO mettagrid_env_configs (config_hash, config, name, compat_version, num_agents) VALUES (?, ?, ?, ?, ?)", env_configs)
 
     variants = [
         ("Standard 1v1", 1, 1),
@@ -487,73 +475,46 @@ def create_db():
     )
 
     episodes = [
-        (1, 42, '{"winner": "AlphaStrike", "turns": 24}'),
-        (1, 99, '{"winner": "AlphaStrike", "turns": 31}'),
-        (2, 7, '{"winner": "Blitz-v3", "turns": 18}'),
-        (1, 123, '{"winner": "AlphaStrike", "turns": 27}'),
-        (4, 55, '{"winner": "TankBot", "turns": 40}'),
-        (2, 88, '{"winner": "Blitz-v3", "turns": 22}'),
+        ("s3://games/episodes/1/data", "s3://games/episodes/1/replay.log", 1),
+        ("s3://games/episodes/2/data", "s3://games/episodes/2/replay.log", 1),
+        ("s3://games/episodes/3/data", "s3://games/episodes/3/replay.log", 5),
+        ("s3://games/episodes/4/data", "s3://games/episodes/4/replay.log", 1),
+        ("s3://games/episodes/5/data", "s3://games/episodes/5/replay.log", 9),
+        ("s3://games/episodes/6/data", "s3://games/episodes/6/replay.log", 5),
     ]
-    c.executemany("INSERT INTO episodes (episode_request_id, seed, score) VALUES (?, ?, ?)", episodes)
+    c.executemany("INSERT INTO episodes (data_uri, replay_url, primary_pv_id) VALUES (?, ?, ?)", episodes)
 
     episode_policies = [
-        (1, 1, 0, 3.5, "Turn 12: captured flag"),
-        (2, 1, 1, 1.2, ""),
-        (1, 2, 0, 4.0, "Dominated early game"),
-        (3, 2, 1, 2.1, ""),
-        (5, 3, 0, 5.0, "Perfect score"),
-        (6, 3, 1, 3.3, "Close match"),
-        (8, 4, 0, 2.8, ""),
-        (1, 4, 1, 3.1, ""),
-        (9, 5, 0, 4.5, "Strong finish"),
-        (10, 5, 1, 1.0, "Eliminated round 2"),
-        (5, 6, 0, 3.9, ""),
-        (7, 6, 1, 2.5, "HiveMind timeout on turn 8"),
+        (1, 1, 1),
+        (1, 2, 1),
+        (2, 1, 1),
+        (2, 3, 1),
+        (3, 5, 1),
+        (3, 6, 1),
+        (4, 8, 1),
+        (4, 1, 1),
+        (5, 9, 1),
+        (5, 10, 1),
+        (6, 5, 1),
+        (6, 7, 1),
     ]
     c.executemany(
-        "INSERT INTO episode_policies (policy_version_id, episode_id, agent_id, score, logs) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO episode_policies (episode_id, policy_version_id, num_agents) VALUES (?, ?, ?)",
         episode_policies,
     )
 
-    episode_logs = [
-        (1, "s3://games/episodes/1/replay.log"),
-        (1, "s3://games/episodes/1/metrics.json"),
-        (2, "s3://games/episodes/2/replay.log"),
-        (3, "s3://games/episodes/3/replay.log"),
-        (4, "s3://games/episodes/4/replay.log"),
-        (5, "s3://games/episodes/5/replay.log"),
-        (6, "s3://games/episodes/6/replay.log"),
-    ]
-    c.executemany(
-        "INSERT INTO episode_logs (episode_id, log_uri) VALUES (?, ?)",
-        episode_logs,
-    )
-
     rounds = [
-        (1, "Round 1", '{"AlphaStrike": 3, "TurtleShell": 1, "SniperBot": 2}'),
-        (1, "Round 2", '{"AlphaStrike": 2, "TurtleShell": 2, "SniperBot": 2}'),
-        (2, "Round 1", '{"DefendBot": 1, "Blitz-v3": 3, "TankBot": 2}'),
-        (3, "Round 1", '{"AlphaStrike": 4, "SwarmAI": 0, "ScoutRush": 2}'),
-        (4, "Qualifier", '{"DefendBot": 2, "Blitz-v3": 1, "TankBot": 3}'),
-        (6, "Semifinal", '{"AlphaStrike": 5, "SwarmAI": 3, "SniperBot": 4, "FlankerPro": 2}'),
-        (9, "Final", '{"AlphaStrike": 6, "SniperBot": 5, "TankBot": 3, "FlankerPro": 4}'),
+        (1, 1, "completed", "Round 1"),
+        (1, 2, "completed", "Round 2"),
+        (2, 1, "completed", "Round 1"),
+        (3, 1, "completed", "Round 1"),
+        (4, 1, "completed", "Qualifier"),
+        (6, 1, "completed", "Semifinal"),
+        (9, 1, "completed", "Final"),
     ]
     c.executemany(
-        "INSERT INTO rounds (division_id, notes, results) VALUES (?, ?, ?)",
+        "INSERT INTO rounds (division_id, round_number, status, notes) VALUES (?, ?, ?, ?)",
         rounds,
-    )
-
-    round_episodes = [
-        (1, 1), (1, 2),
-        (2, 3),
-        (3, 4),
-        (5, 5),
-        (6, 6),
-        (7, 1), (7, 4),
-    ]
-    c.executemany(
-        "INSERT INTO round_episodes (round_id, episode_id) VALUES (?, ?)",
-        round_episodes,
     )
 
     # round_results replaces rank_policies
@@ -593,7 +554,7 @@ def create_db():
         (2, 6, 8, 5, 2),   # Pool 2: SniperBot
     ]
     c.executemany(
-        "INSERT INTO policy_pool_entries (policy_pool_id, division_entry_id, policy_version_id, player_id, seed_order) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO policy_pool_entries (pool_id, division_entry_id, policy_version_id, player_id, seed_order) VALUES (?, ?, ?, ?, ?)",
         pool_entries,
     )
 
@@ -605,7 +566,7 @@ def create_db():
         (None, 3, 3, None, None, '[0, 1]', None, None, "completed"),
     ]
     c.executemany(
-        "INSERT INTO episode_requests (policy_pool_id, variant_id, requester_user_id, player_id, job_index, assignments, seed, max_steps, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO episode_requests (pool_id, variant_id, requester_user_id, player_id, job_index, assignments, seed, max_steps, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         episode_requests,
     )
 
