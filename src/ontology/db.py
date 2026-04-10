@@ -174,7 +174,7 @@ def create_db():
 
         CREATE TABLE episodes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            variant_id INTEGER NOT NULL REFERENCES variants(id),
+            episode_request_id INTEGER REFERENCES episode_requests(id),
             seed INTEGER NOT NULL,
             score TEXT DEFAULT '{}',
             notes TEXT DEFAULT '',
@@ -491,10 +491,10 @@ def create_db():
         (1, 99, '{"winner": "AlphaStrike", "turns": 31}'),
         (2, 7, '{"winner": "Blitz-v3", "turns": 18}'),
         (1, 123, '{"winner": "AlphaStrike", "turns": 27}'),
-        (3, 55, '{"winner": "TankBot", "turns": 40}'),
+        (4, 55, '{"winner": "TankBot", "turns": 40}'),
         (2, 88, '{"winner": "Blitz-v3", "turns": 22}'),
     ]
-    c.executemany("INSERT INTO episodes (variant_id, seed, score) VALUES (?, ?, ?)", episodes)
+    c.executemany("INSERT INTO episodes (episode_request_id, seed, score) VALUES (?, ?, ?)", episodes)
 
     episode_policies = [
         (1, 1, 0, 3.5, "Turn 12: captured flag"),
