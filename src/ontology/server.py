@@ -299,23 +299,23 @@ class Handler(SimpleHTTPRequestHandler):
                 JOIN rounds r ON re.round_id = r.id
                 JOIN episodes e ON re.episode_id = e.id
             """)
-        if path == "/api/pools":
+        if path == "/api/policy_pools":
             return query("""
                 SELECT p.*, r.division_id, r.notes as round_notes,
                        v.name as variant_name
-                FROM pools p
+                FROM policy_pools p
                 JOIN rounds r ON p.round_id = r.id
                 LEFT JOIN variants v ON p.variant_id = v.id
             """)
-        if path == "/api/pool_entries":
+        if path == "/api/policy_pool_entries":
             return query("""
                 SELECT pe.*, pv.name as policy_version_name,
                        pl.name as player_name,
                        p.label as pool_label, p.pool_type
-                FROM pool_entries pe
+                FROM policy_pool_entries pe
                 JOIN policy_versions pv ON pe.policy_version_id = pv.id
                 LEFT JOIN players pl ON pe.player_id = pl.id
-                JOIN pools p ON pe.pool_id = p.id
+                JOIN policy_pools p ON pe.policy_pool_id = p.id
             """)
         if path == "/api/episode_requests":
             return query("""

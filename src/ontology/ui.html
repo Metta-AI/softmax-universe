@@ -614,12 +614,12 @@ const RELATIONSHIP_CATEGORIES = [
     key: 'simulation',
     title: 'SIMULATION & RESULTS',
     toneIndex: 3,
-    tables: ['episodes', 'episode_policies', 'episode_logs', 'rounds', 'round_episodes', 'pools', 'pool_entries'],
+    tables: ['episodes', 'episode_policies', 'episode_logs', 'rounds', 'round_episodes', 'policy_pools', 'policy_pool_entries'],
   },
 ];
 
 async function fetchAll() {
-  const endpoints = ['users','players','policy_versions','games','mods','submissions','division_entries','division_entry_events','leagues','divisions','rank_users','rank_players','round_results','projects','status_updates','episode_requests','variants','mod_variants','episodes','episode_policies','episode_logs','rounds','round_episodes','player_league_memberships','pools','pool_entries','episode_request_policies','schema'];
+  const endpoints = ['users','players','policy_versions','games','mods','submissions','division_entries','division_entry_events','leagues','divisions','rank_users','rank_players','round_results','projects','status_updates','episode_requests','variants','mod_variants','episodes','episode_policies','episode_logs','rounds','round_episodes','player_league_memberships','policy_pools','policy_pool_entries','episode_request_policies','schema'];
   const results = await Promise.all(endpoints.map(async e => {
     const response = await fetch(`/api/${e}`);
     const text = await response.text();

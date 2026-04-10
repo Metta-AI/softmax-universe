@@ -221,7 +221,7 @@ def create_db():
             created_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
 
-        CREATE TABLE pools (
+        CREATE TABLE policy_pools (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             round_id INTEGER NOT NULL REFERENCES rounds(id),
             pool_index INTEGER NOT NULL DEFAULT 0,
@@ -236,9 +236,9 @@ def create_db():
             created_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
 
-        CREATE TABLE pool_entries (
+        CREATE TABLE policy_pool_entries (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            pool_id INTEGER NOT NULL REFERENCES pools(id),
+            policy_pool_id INTEGER NOT NULL REFERENCES policy_pools(id),
             division_entry_id INTEGER REFERENCES division_entries(id),
             policy_version_id INTEGER NOT NULL REFERENCES policy_versions(id),
             player_id INTEGER REFERENCES players(id),
@@ -249,7 +249,7 @@ def create_db():
 
         CREATE TABLE episode_requests (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            pool_id INTEGER REFERENCES pools(id),
+            policy_pool_id INTEGER REFERENCES policy_pools(id),
             variant_id INTEGER NOT NULL REFERENCES variants(id),
             requester_user_id INTEGER NOT NULL REFERENCES users(id),
             player_id INTEGER REFERENCES players(id),
@@ -559,13 +559,13 @@ def create_db():
         round_results,
     )
 
-    # Pools for round 1 (simple arena)
+    # Policy pools for round 1 (simple arena)
     pools = [
         (1, 0, "Arena", "arena", 1, '{}', "completed"),
         (2, 0, "Arena", "arena", 1, '{}', "completed"),
     ]
     c.executemany(
-        "INSERT INTO pools (round_id, pool_index, label, pool_type, variant_id, config, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO policy_pools (round_id, pool_index, label, pool_type, variant_id, config, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
         pools,
     )
 
@@ -578,7 +578,7 @@ def create_db():
         (2, 6, 8, 5, 2),   # Pool 2: SniperBot
     ]
     c.executemany(
-        "INSERT INTO pool_entries (pool_id, division_entry_id, policy_version_id, player_id, seed_order) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO policy_pool_entries (policy_pool_id, division_entry_id, policy_version_id, player_id, seed_order) VALUES (?, ?, ?, ?, ?)",
         pool_entries,
     )
 
@@ -590,7 +590,7 @@ def create_db():
         (None, 3, 3, None, None, '[0, 1]', None, None, "completed"),
     ]
     c.executemany(
-        "INSERT INTO episode_requests (pool_id, variant_id, requester_user_id, player_id, job_index, assignments, seed, max_steps, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO episode_requests (policy_pool_id, variant_id, requester_user_id, player_id, job_index, assignments, seed, max_steps, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         episode_requests,
     )
 
