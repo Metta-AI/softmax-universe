@@ -233,11 +233,14 @@ class Handler(SimpleHTTPRequestHandler):
                 JOIN players p ON pr.player_id = p.id
                 ORDER BY su.created_at DESC
             """)
+        if path == "/api/mettagrid_env_configs":
+            return query("SELECT * FROM mettagrid_env_configs")
         if path == "/api/variants":
             return query("""
-                SELECT v.*, g.name as game_name
+                SELECT v.*, g.name as game_name, ec.config, ec.config_hash
                 FROM variants v
                 JOIN games g ON v.game_id = g.id
+                JOIN mettagrid_env_configs ec ON v.env_config_id = ec.id
             """)
         if path == "/api/mod_variants":
             return query("""
@@ -248,8 +251,10 @@ class Handler(SimpleHTTPRequestHandler):
             """)
         if path == "/api/episodes":
             return query("""
-                SELECT e.*, v.name as variant_name
-                FROM episodes e JOIN variants v ON e.variant_id = v.id
+                SELECT e.*, er.variant_id, v.name as variant_name
+                FROM episodes e
+                LEFT JOIN episode_requests er ON e.episode_request_id = er.id
+                LEFT JOIN variants v ON er.variant_id = v.id
             """)
         if path == "/api/episode_policies":
             return query("""
@@ -260,9 +265,10 @@ class Handler(SimpleHTTPRequestHandler):
             """)
         if path == "/api/episode_logs":
             return query("""
-                SELECT el.*, e.variant_id, e.seed
+                SELECT el.*, e.seed, er.variant_id
                 FROM episode_logs el
                 JOIN episodes e ON el.episode_id = e.id
+                LEFT JOIN episode_requests er ON e.episode_request_id = er.id
             """)
         if path == "/api/rounds":
             return query("""
@@ -294,10 +300,11 @@ class Handler(SimpleHTTPRequestHandler):
         if path == "/api/round_episodes":
             return query("""
                 SELECT re.*, r.notes as round_notes, r.division_id,
-                       e.variant_id, e.seed
+                       e.seed, er.variant_id
                 FROM round_episodes re
                 JOIN rounds r ON re.round_id = r.id
                 JOIN episodes e ON re.episode_id = e.id
+                LEFT JOIN episode_requests er ON e.episode_request_id = er.id
             """)
         if path == "/api/policy_pools":
             return query("""
