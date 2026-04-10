@@ -409,7 +409,7 @@
   }
 
   .relationship-edge.is-dimmed {
-    opacity: 0.14;
+    opacity: 0.32;
   }
 
   .relationship-edge.is-active {
@@ -426,7 +426,7 @@
   }
 
   .relationship-node-group.is-dimmed {
-    opacity: 0.18;
+    opacity: 0.46;
   }
 
   .relationship-node-group.is-related .relationship-node-card {
@@ -478,6 +478,12 @@
     flex-wrap: wrap;
   }
 
+  .relationship-inspector-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 16px;
+  }
+
 </style>
 </head>
 <body>
@@ -497,20 +503,21 @@
     <div class="nav-item" data-view="leagues">
       <span class="icon">▥</span> Leagues <span class="badge" id="badge-leagues">-</span>
     </div>
-    <div class="nav-item" data-view="commissioners">
-      <span class="icon">⚑</span> Commissioners <span class="badge" id="badge-commissioners">-</span>
-    </div>
+
     <div class="nav-item" data-view="rankings">
       <span class="icon">★</span> Rankings <span class="badge" id="badge-rankings">-</span>
     </div>
     <div class="nav-item" data-view="submissions">
       <span class="icon">◇</span> Submissions <span class="badge" id="badge-submissions">-</span>
     </div>
-    <div class="nav-item" data-view="placements">
-      <span class="icon">◈</span> Placements <span class="badge" id="badge-placements">-</span>
+    <div class="nav-item" data-view="division_entries">
+      <span class="icon">◈</span> Division Entries <span class="badge" id="badge-division_entries">-</span>
     </div>
-    <div class="nav-item" data-view="experience_requests">
-      <span class="icon">✦</span> XP Requests <span class="badge" id="badge-experience_requests">-</span>
+    <div class="nav-item" data-view="division_entry_events">
+      <span class="icon">⇄</span> Division History <span class="badge" id="badge-division_entry_events">-</span>
+    </div>
+    <div class="nav-item" data-view="episode_requests">
+      <span class="icon">✦</span> Episode Requests <span class="badge" id="badge-episode_requests">-</span>
     </div>
     <div class="nav-item" data-view="episodes">
       <span class="icon">▶</span> Episodes <span class="badge" id="badge-episodes">-</span>
@@ -529,32 +536,33 @@
 
 <script>
 const state = {};
+state.relationshipMapHover = null;
+state.relationshipMapSelection = null;
 const OBJECT_DESCRIPTIONS = {
   users: 'human accounts',
   players: 'submitters of policies, possibly agents',
-  policies: 'bot definitions owned by a player; the things that get submitted, ranked, and placed',
+  policy_versions: 'concrete uploaded artifacts (model checkpoints) owned by a player; the atomic unit of competition',
   submissions: 'requests to enter a policy into a league, including status, preferences, and optional predecessor',
-  placements: 'accepted league entries that assign a policy to a league and usually a division',
+  placements: 'commissioner actions that place a policy into a division, optionally in response to a submission',
   mods: 'collections of variants that all belong to the same Game',
   games: 'top-level game definitions that own leagues and mods',
   leagues: 'competition tracks for a specific game and mod, governed by one commissioner',
   divisions: 'tiers within a league that hold placed policies and division champions',
   projects: 'player-owned workstreams for improving or researching policies, tracked by status updates',
-  experience_requests: 'requests to run episodes for selected policies under a specific config, seed, and episode count',
+  episode_requests: 'requests to run episodes for selected policies under a specific config, seed, and episode count',
   variants: 'reusable configuration bundles linked to mods and used to generate episodes',
   mod_variants: 'joins mods to the variants they support, with an optional canonical marker',
-  commissioners: 'league-management strategies that define how a league is run',
-  rankings: 'time-stamped policy standings, plus derived best-per-player and best-per-user leaderboards',
+    rankings: 'time-stamped policy standings, plus derived best-per-player and best-per-user leaderboards',
   episodes: 'individual simulated games for one variant and seed, with policy results and logs',
   episode_policies: 'per-policy results within an episode, including agent slot, score, and logs',
   episode_logs: 'artifact references attached to an episode, such as replay and metrics logs',
   rounds: 'competition rounds within a division that aggregate results across one or more episodes',
   round_episodes: 'joins rounds to the episodes that make up those rounds',
   player_league_memberships: 'joins players to leagues, with an optional avatar flag',
-  placement_results: 'records the division outcome produced by a placement',
+  division_entry_events: 'append-only history of division entry changes',
   status_updates: 'timestamped updates attached to a project',
-  division_policies: 'joins policies to divisions, with an optional champion marker',
-  rank_policies: 'stored policy ranking snapshots for a league and optional division',
+  division_entries: 'joins policies to divisions, with an optional champion marker',
+  round_results: 'final aggregated result for a policy version in a round',
   relationship_map: 'Generated from the live SQLite schema',
 };
 
@@ -568,16 +576,16 @@ const RELATIONSHIP_GRAPH_TONES = [
 const MODEL_ROUTE_PATHS = new Set([
   'users',
   'players',
-  'policies',
+  'policy_versions',
   'submissions',
-  'placements',
+  'division_entries',
+  'division_entry_events',
   'games',
   'mods',
-  'commissioners',
-  'leagues',
+    'leagues',
   'divisions',
   'projects',
-  'experience_requests',
+  'episode_requests',
   'variants',
   'episodes',
   'rounds',
@@ -588,7 +596,7 @@ const RELATIONSHIP_CATEGORIES = [
     key: 'identity',
     title: 'IDENTITY & OWNERSHIP',
     toneIndex: 0,
-    tables: ['users', 'players', 'policies', 'projects', 'status_updates', 'experience_requests'],
+    tables: ['users', 'players', 'policy_versions', 'projects', 'status_updates', 'episode_requests', 'episode_request_policies'],
   },
   {
     key: 'config',
@@ -600,18 +608,18 @@ const RELATIONSHIP_CATEGORIES = [
     key: 'competition',
     title: 'COMPETITION STRUCTURE',
     toneIndex: 2,
-    tables: ['commissioners', 'leagues', 'divisions', 'player_league_memberships', 'submissions', 'placements', 'placement_results', 'division_policies', 'rank_policies'],
+    tables: ['leagues', 'divisions', 'player_league_memberships', 'submissions', 'division_entries', 'division_entry_events', 'round_results'],
   },
   {
     key: 'simulation',
     title: 'SIMULATION & RESULTS',
     toneIndex: 3,
-    tables: ['episodes', 'episode_policies', 'episode_logs', 'rounds', 'round_episodes'],
+    tables: ['episodes', 'episode_policies', 'episode_logs', 'rounds', 'round_episodes', 'policy_pools', 'policy_pool_entries'],
   },
 ];
 
 async function fetchAll() {
-  const endpoints = ['users','players','policies','games','mods','commissioners','submissions','placements','placement_results','leagues','divisions','rank_users','rank_players','rank_policies','projects','status_updates','experience_requests','variants','mod_variants','episodes','episode_policies','episode_logs','rounds','round_episodes','player_league_memberships','division_policies','schema'];
+  const endpoints = ['users','players','policy_versions','games','mods','submissions','division_entries','division_entry_events','leagues','divisions','rank_users','rank_players','round_results','projects','status_updates','episode_requests','variants','mod_variants','episodes','episode_policies','episode_logs','rounds','round_episodes','player_league_memberships','policy_pools','policy_pool_entries','episode_request_policies','schema'];
   const results = await Promise.all(endpoints.map(async e => {
     const response = await fetch(`/api/${e}`);
     const text = await response.text();
@@ -629,12 +637,13 @@ async function fetchAll() {
   document.getElementById('badge-games').textContent = state.games.length;
   document.getElementById('badge-mods').textContent = state.mods.length;
   document.getElementById('badge-submissions').textContent = state.submissions.length;
-  document.getElementById('badge-placements').textContent = state.placements.length;
+  document.getElementById('badge-division_entries').textContent = state.division_entries.length;
+  document.getElementById('badge-division_entry_events').textContent = state.division_entry_events.length;
   document.getElementById('badge-leagues').textContent = state.leagues.length;
-  document.getElementById('badge-commissioners').textContent = state.commissioners.length;
+  
   if (document.getElementById('badge-divisions')) document.getElementById('badge-divisions').textContent = state.divisions.length;
-  document.getElementById('badge-experience_requests').textContent = state.experience_requests.length;
-  document.getElementById('badge-rankings').textContent = state.rank_users.length + state.rank_players.length + state.rank_policies.length;
+  document.getElementById('badge-episode_requests').textContent = state.episode_requests.length;
+  document.getElementById('badge-rankings').textContent = state.rank_users.length + state.rank_players.length + state.round_results.length;
   document.getElementById('badge-episodes').textContent = state.episodes.length;
   document.getElementById('badge-rounds').textContent = state.rounds.length;
 }
@@ -654,8 +663,18 @@ function divisionMembershipLink(dp, color) {
   return dp.is_champion ? `${division} <span class="tag tag-green" style="font-size:10px">champion</span>` : division;
 }
 function policyDivisionLink(dp, color) {
-  const policy = tagLink('policies', dp.policy_id, dp.policy_name, color || 'orange');
+  const policy = tagLink('policy_versions', dp.policy_version_id, dp.policy_version_name, color || 'orange');
   return dp.is_champion ? `${policy} <span class="tag tag-green" style="font-size:10px">champion</span>` : policy;
+}
+function renderSubmissionStatus(status) {
+  const tone = status === 'placed' ? 'green' : status === 'rejected' ? 'red' : 'orange';
+  return `<span class="tag tag-${tone}">${status}</span>`;
+}
+function renderEntrySource(entry) {
+  return '<span class="tag tag-purple">entry</span>';
+}
+function getCurrentLeagueDivisionEntry(pvId, leagueId) {
+  return state.division_entries.find(de => de.policy_version_id === pvId && de.league_id === leagueId && de.is_active) || null;
 }
 function renderObjectTitle(title, key) {
   const description = OBJECT_DESCRIPTIONS[key];
@@ -740,6 +759,11 @@ function isRelationshipJunctionTable(table) {
     name.startsWith('is_')
   );
 }
+function getRelationshipLaneOffset(index) {
+  const step = 14;
+  const band = Math.floor(index / 2) + 1;
+  return (index % 2 === 0 ? -1 : 1) * band * step;
+}
 function buildRelationshipGraphLayout() {
   const tables = getSchemaTables().map(table => ({
     ...table,
@@ -793,33 +817,61 @@ function buildRelationshipGraphLayout() {
   const smallNodeHeight = 48;
   const horizontalGap = 72;
   const verticalGap = 24;
+  const compactGap = 16;
   const marginX = 46;
   const marginTop = 78;
   const marginBottom = 48;
   const clusterPad = 18;
-  const tallestColumn = Math.max(...categoryEntries.map(category => category.names.length));
-  const height = marginTop + (tallestColumn * nodeHeight) + (Math.max(0, tallestColumn - 1) * verticalGap) + marginBottom;
   const width = marginX + (categoryEntries.length * nodeWidth) + (Math.max(0, categoryEntries.length - 1) * horizontalGap) + marginX;
 
-  const nodes = tables.map(table => {
+  const defaultNodes = tables.map(table => {
     const categoryIndex = categoryEntries.findIndex(category => category.names.includes(table.name));
     const category = categoryEntries[categoryIndex];
     const index = category.names.indexOf(table.name);
     const isSmall = isRelationshipJunctionTable(table);
     const width = isSmall ? smallNodeWidth : nodeWidth;
     const height = isSmall ? smallNodeHeight : nodeHeight;
+    const defaultY = marginTop + index * (nodeHeight + verticalGap) + ((nodeHeight - height) / 2);
     return {
       ...table,
+      categoryIndex,
       categoryKey: category.key,
       x: marginX + categoryIndex * (nodeWidth + horizontalGap) + ((nodeWidth - width) / 2),
-      y: marginTop + index * (nodeHeight + verticalGap) + ((nodeHeight - height) / 2),
+      y: defaultY,
+      desiredY: defaultY,
       width,
       height,
       lines: splitModelTitle(table.name),
       tone: category.tone,
       isSmall,
     };
-  }).sort((left, right) => left.x - right.x || left.y - right.y);
+  });
+
+  const defaultNodeByName = Object.fromEntries(defaultNodes.map(node => [node.name, node]));
+  defaultNodes.forEach(node => {
+    if (!node.isSmall) return;
+    const anchorNodes = (node.foreign_keys || [])
+      .map(fk => defaultNodeByName[fk.table])
+      .filter(Boolean);
+    if (anchorNodes.length < 2) return;
+    const anchorCenter = anchorNodes.reduce((sum, anchor) => sum + anchor.y + (anchor.height / 2), 0) / anchorNodes.length;
+    node.desiredY = anchorCenter - (node.height / 2);
+  });
+
+  const nodes = [];
+  categoryEntries.forEach(category => {
+    const laneNodes = defaultNodes
+      .filter(node => node.categoryKey === category.key)
+      .sort((left, right) => left.desiredY - right.desiredY || left.y - right.y);
+
+    let nextY = marginTop;
+    laneNodes.forEach(node => {
+      node.y = Math.max(node.desiredY, nextY);
+      nextY = node.y + node.height + compactGap;
+      nodes.push(node);
+    });
+  });
+  nodes.sort((left, right) => left.x - right.x || left.y - right.y);
 
   const nodeByName = Object.fromEntries(nodes.map(node => [node.name, node]));
   const linkMap = new Map();
@@ -829,7 +881,31 @@ function buildRelationshipGraphLayout() {
     if (!linkMap.has(key)) linkMap.set(key, { parent: rel.parent, child: rel.child, optionalOnly: true });
     if (!rel.optional) linkMap.get(key).optionalOnly = false;
   });
+  const links = [...linkMap.values()].map(link => ({ ...link, sameLaneOffset: 0 }));
+  const sameLaneGroups = new Map();
+  links.forEach(link => {
+    const parentNode = nodeByName[link.parent];
+    const childNode = nodeByName[link.child];
+    if (!parentNode || !childNode || parentNode.categoryKey !== childNode.categoryKey) return;
+    const key = parentNode.categoryKey;
+    if (!sameLaneGroups.has(key)) sameLaneGroups.set(key, []);
+    sameLaneGroups.get(key).push(link);
+  });
+  sameLaneGroups.forEach(group => {
+    group
+      .sort((left, right) => {
+        const leftParent = nodeByName[left.parent];
+        const rightParent = nodeByName[right.parent];
+        const leftChild = nodeByName[left.child];
+        const rightChild = nodeByName[right.child];
+        return leftParent.y - rightParent.y || leftChild.y - rightChild.y || left.parent.localeCompare(right.parent) || left.child.localeCompare(right.child);
+      })
+      .forEach((link, index) => {
+        link.sameLaneOffset = getRelationshipLaneOffset(index);
+      });
+  });
 
+  const height = Math.max(...nodes.map(node => node.y + node.height)) + marginBottom;
   const clusters = categoryEntries.map((category, index) => ({
     title: category.title,
     x: marginX + index * (nodeWidth + horizontalGap) - clusterPad,
@@ -844,7 +920,7 @@ function buildRelationshipGraphLayout() {
     height,
     nodes,
     nodeByName,
-    links: [...linkMap.values()],
+    links,
     clusters,
   };
 }
@@ -864,11 +940,15 @@ function getEdgeAnchor(fromNode, toNode) {
 function renderRelationshipInspector(name) {
   const table = name ? getSchemaTable(name) : null;
   if (!table) {
-    return `<div class="relationship-map-inspector-empty">Hover a table to inspect its description and schema.</div>`;
+    return `<div class="relationship-map-inspector-empty">Hover or click a table to inspect its description and schema.</div>`;
   }
 
   const primaryKeyColumns = (table.columns || []).filter(column => column.pk).map(column => column.name);
   const foreignKeyByColumn = Object.fromEntries((table.foreign_keys || []).map(fk => [fk.from, fk]));
+  const route = getRouteForModel(name);
+  const actions = route
+    ? `<div class="relationship-inspector-actions"><button class="btn btn-sm" onclick="navigate('${route}')">Go</button></div>`
+    : '';
 
   return `
     <h3>${escapeHtml(titleizeModelName(name))}</h3>
@@ -903,13 +983,18 @@ function renderRelationshipInspector(name) {
         </table>
       </div>
     </div>
+    ${actions}
   `;
 }
-function applyRelationshipHoverState(name) {
+function getActiveRelationshipName() {
+  return state.relationshipMapHover || state.relationshipMapSelection || null;
+}
+function applyRelationshipFocusState() {
   const content = document.getElementById('content');
   if (!content) return;
   const nodeEls = content.querySelectorAll('[data-node-name]');
   const edgeEls = content.querySelectorAll('[data-edge-parent]');
+  const name = getActiveRelationshipName();
   const connected = name ? getConnectedRelationshipNames(name) : null;
 
   nodeEls.forEach(el => {
@@ -929,10 +1014,16 @@ function applyRelationshipHoverState(name) {
   if (inspector) inspector.innerHTML = renderRelationshipInspector(name);
 }
 function setRelationshipMapHover(name) {
-  applyRelationshipHoverState(name);
+  state.relationshipMapHover = name;
+  applyRelationshipFocusState();
 }
 function clearRelationshipMapHover() {
-  applyRelationshipHoverState(null);
+  state.relationshipMapHover = null;
+  applyRelationshipFocusState();
+}
+function selectRelationshipNode(name) {
+  state.relationshipMapSelection = name;
+  applyRelationshipFocusState();
 }
 function renderRelationshipMap() {
   const graph = buildRelationshipGraphLayout();
@@ -950,16 +1041,31 @@ function renderRelationshipMap() {
   const renderEdge = edge => {
     const fromNode = graph.nodeByName[edge.parent];
     const toNode = graph.nodeByName[edge.child];
-    const start = getEdgeAnchor(fromNode, toNode);
-    const end = getEdgeAnchor(toNode, fromNode);
-    return `<path class="relationship-edge${edge.optionalOnly ? ' optional' : ''}" data-edge-parent="${edge.parent}" data-edge-child="${edge.child}" d="M ${start.x} ${start.y} L ${end.x} ${end.y}"></path>`;
+    const isSameLane = fromNode.categoryKey === toNode.categoryKey;
+    const fromCenterX = fromNode.x + fromNode.width / 2;
+    const toCenterX = toNode.x + toNode.width / 2;
+    const direction = (toNode.y + toNode.height / 2) >= (fromNode.y + fromNode.height / 2) ? 1 : -1;
+    const start = isSameLane && edge.sameLaneOffset
+      ? {
+          x: fromCenterX + edge.sameLaneOffset,
+          y: direction > 0 ? fromNode.y + fromNode.height : fromNode.y,
+        }
+      : getEdgeAnchor(fromNode, toNode);
+    const end = isSameLane && edge.sameLaneOffset
+      ? {
+          x: toCenterX + edge.sameLaneOffset,
+          y: direction > 0 ? toNode.y : toNode.y + toNode.height,
+        }
+      : getEdgeAnchor(toNode, fromNode);
+    const path = `M ${start.x} ${start.y} L ${end.x} ${end.y}`;
+    return `<path class="relationship-edge${edge.optionalOnly ? ' optional' : ''}" data-edge-parent="${edge.parent}" data-edge-child="${edge.child}" d="${path.replace(/\s+/g, ' ').trim()}"></path>`;
   };
 
   const renderNode = node => {
-    const groupClasses = `relationship-node-group${node.route ? ' is-clickable' : ''}`;
+    const groupClasses = 'relationship-node-group is-clickable';
     const titleStartY = node.lines.length > 1 ? (node.isSmall ? 23 : 27) : (node.isSmall ? 30 : 37);
     return `
-      <g class="${groupClasses}" data-node-name="${node.name}" transform="translate(${node.x}, ${node.y})" onmouseenter="setRelationshipMapHover('${node.name}')" onmouseleave="clearRelationshipMapHover()"${node.route ? ` onclick="navigate('${node.route}')"` : ''}>
+      <g class="${groupClasses}" data-node-name="${node.name}" transform="translate(${node.x}, ${node.y})" onmouseenter="setRelationshipMapHover('${node.name}')" onmouseleave="clearRelationshipMapHover()" onclick="selectRelationshipNode('${node.name}')">
         <rect class="relationship-node-card" width="${node.width}" height="${node.height}" rx="14" fill="${node.tone.fill}" stroke="${node.tone.stroke}"></rect>
         <rect class="relationship-node-count-badge" x="${node.width - 40}" y="10" width="28" height="18" rx="9"></rect>
         <text class="relationship-node-count" x="${node.width - 26}" y="23">${node.row_count}</text>
@@ -980,7 +1086,7 @@ function renderRelationshipMap() {
       <div class="relationship-map-scroll">
         <svg class="relationship-map-svg" viewBox="0 0 ${graph.width} ${graph.height}" role="img" aria-label="Relationship graph of ontology models">
           <defs>
-            <marker id="relationship-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <marker id="relationship-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
               <path d="M 0 0 L 10 5 L 0 10 z" fill="#8b90a0"></path>
             </marker>
           </defs>
@@ -991,7 +1097,7 @@ function renderRelationshipMap() {
       </div>
 
       <div class="detail-card" id="relationship-map-inspector">
-        ${renderRelationshipInspector(null)}
+        ${renderRelationshipInspector(getActiveRelationshipName())}
       </div>
     </div>
   `;
@@ -1029,15 +1135,15 @@ async function createPlayer(userId) {
 async function createPolicy(playerId) {
   const name = document.getElementById('new-policy-name').value.trim();
   if (!name) return;
-  const {id} = await post(`/api/players/${playerId}/create_policy`, {name});
-  navigate('policies/' + id);
+  const {id} = await post(`/api/players/${playerId}/create_policy_version`, {name});
+  navigate('policy_versions/' + id);
 }
 
 async function submitToLeague(playerId) {
   const policyId = parseInt(document.getElementById('submit-policy').value);
   const leagueId = parseInt(document.getElementById('submit-league').value);
   if (!policyId || !leagueId) return;
-  await post(`/api/players/${playerId}/submit`, {policy_id: policyId, league_id: leagueId});
+  await post(`/api/players/${playerId}/submit`, {policy_version_id: policyId, league_id: leagueId});
   navigate('players/' + playerId);
 }
 
@@ -1061,7 +1167,7 @@ function renderOverview() {
     <div class="stats">
       <div class="stat-card" style="cursor:pointer" onclick="navigate('users')"><div class="label">Users</div><div class="value purple">${state.users.length}</div></div>
       <div class="stat-card" style="cursor:pointer" onclick="navigate('players')"><div class="label">Players</div><div class="value green">${state.players.length}</div></div>
-      <div class="stat-card" style="cursor:pointer" onclick="navigate('policies')"><div class="label">Policies</div><div class="value orange">${state.policies.length}</div></div>
+      <div class="stat-card" style="cursor:pointer" onclick="navigate('policy_versions')"><div class="label">Policy Versions</div><div class="value orange">${state.policy_versions.length}</div></div>
       <div class="stat-card" style="cursor:pointer" onclick="navigate('games')"><div class="label">Games</div><div class="value blue">${state.games.length}</div></div>
     </div>
     <div class="detail-grid">
@@ -1093,10 +1199,10 @@ function renderUsers() {
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
           <h3 style="margin:0">${link('users', u.id, u.name)}</h3>
           <span style="color:var(--text2);font-size:12px">${u.email}</span>
-          <span style="color:var(--text2);font-size:12px;margin-left:auto">${players.length} player${players.length!==1?'s':''}, ${players.reduce((n,p) => n + state.policies.filter(pol => pol.player_id === p.id).length, 0)} policies</span>
+          <span style="color:var(--text2);font-size:12px;margin-left:auto">${players.length} player${players.length!==1?'s':''}, ${players.reduce((n,p) => n + state.policy_versions.filter(pol => pol.player_id === p.id).length, 0)} policies</span>
         </div>
         ${players.map(p => {
-          const pols = state.policies.filter(pol => pol.player_id === p.id);
+          const pols = state.policy_versions.filter(pol => pol.player_id === p.id);
           const memberships = state.player_league_memberships.filter(m => m.player_id === p.id);
           return `<details style="margin-bottom:4px;background:var(--surface2);border-radius:6px;padding:0">
             <summary style="padding:8px 12px;cursor:pointer;font-size:13px;list-style:none;display:flex;align-items:center;gap:8px">
@@ -1106,13 +1212,13 @@ function renderUsers() {
               <span style="margin-left:auto">${memberships.map(m => tagLink('leagues', m.league_id, m.league_name, 'blue')).join(' ')}</span>
             </summary>
             <div style="padding:0 12px 10px">
-            ${pols.length ? `<div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Policies</div>
+            ${pols.length ? `<div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Policy Versions</div>
             <div class="table-container" style="margin-bottom:10px"><table>
               <thead><tr><th>Policy</th><th>Description</th><th>Divisions</th><th>Notes</th></tr></thead>
               <tbody>${pols.map(pol => {
-                const divPols = state.division_policies.filter(dp => dp.policy_id === pol.id);
+                const divPols = state.division_entries.filter(dp => dp.policy_version_id === pol.id);
                 return `<tr>
-                  <td>${link('policies', pol.id, '<strong>'+pol.name+'</strong>')}</td>
+                  <td>${link('policy_versions', pol.id, '<strong>'+pol.name+'</strong>')}</td>
                   <td style="color:var(--text2)">${pol.description || '-'}</td>
                   <td>${divPols.map(dp => divisionMembershipLink(dp, 'purple')).join(' ') || '<span style="color:var(--text2)">-</span>'}</td>
                   <td style="color:var(--text2);font-size:11px">${pol.notes || '-'}</td>
@@ -1161,30 +1267,30 @@ function renderPlayers() {
       <button class="btn btn-sm" onclick="createPlayer()">+ New Player</button>
     </div>
     <div class="table-container"><table>
-      <thead><tr><th>ID</th><th>Name</th><th>User</th><th>Policies</th></tr></thead>
+      <thead><tr><th>ID</th><th>Name</th><th>User</th><th>Policy Versions</th></tr></thead>
       <tbody>${state.players.map(p => {
-        const pols = state.policies.filter(pol => pol.player_id === p.id);
+        const pols = state.policy_versions.filter(pol => pol.player_id === p.id);
         return `<tr>
           <td>${p.id}</td>
           <td>${link('players', p.id, p.name)}</td>
           <td>${link('users', p.user_id, p.user_name)}</td>
-          <td>${pols.map(pol => tagLink('policies', pol.id, pol.name, 'orange')).join(' ')}</td>
+          <td>${pols.map(pol => tagLink('policy_versions', pol.id, pol.name, 'orange')).join(' ')}</td>
         </tr>`;
       }).join('')}</tbody>
     </table></div>
   `;
 }
 
-function renderPolicies() {
+function renderPolicyVersions() {
   return `
-    ${renderPageHeader('Policies', `${state.policies.length} bots registered`, 'policies')}
+    ${renderPageHeader('Policy Versions', `${state.policy_versions.length} bots registered`, 'policy_versions')}
     <div class="table-container"><table>
       <thead><tr><th>ID</th><th>Name</th><th>Description</th><th>Player</th><th>User</th><th>Divisions</th></tr></thead>
-      <tbody>${state.policies.map(pol => {
-        const divPols = state.division_policies.filter(dp => dp.policy_id === pol.id);
+      <tbody>${state.policy_versions.map(pol => {
+        const divPols = state.division_entries.filter(dp => dp.policy_version_id === pol.id);
         return `<tr>
           <td>${pol.id}</td>
-          <td>${link('policies', pol.id, '<strong>'+pol.name+'</strong>')}</td>
+          <td>${link('policy_versions', pol.id, '<strong>'+pol.name+'</strong>')}</td>
           <td style="color:var(--text2);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${pol.description || '-'}</td>
           <td>${link('players', pol.player_id, pol.player_name)}</td>
           <td>${link('users', state.players.find(p=>p.id===pol.player_id)?.user_id, pol.user_name)}</td>
@@ -1199,33 +1305,55 @@ function renderSubmissions() {
   return `
     ${renderPageHeader('Submissions', `${state.submissions.length} submissions`, 'submissions')}
     <div class="table-container"><table>
-      <thead><tr><th>ID</th><th>Status</th><th>Policy</th><th>League</th><th>Player</th><th>Predecessor</th><th>Time</th><th>Notes</th></tr></thead>
-      <tbody>${state.submissions.map(s => `<tr>
+      <thead><tr><th>ID</th><th>Status</th><th>Policy</th><th>League</th><th>Entry</th><th>Player</th><th>Time</th><th>Notes</th></tr></thead>
+      <tbody>${state.submissions.map(s => {
+        return `<tr>
         <td>${link('submissions', s.id, s.id)}</td>
-        <td><span class="tag tag-${s.status==='placed'?'green':s.status==='rejected'?'red':'orange'}">${s.status}</span></td>
-        <td>${tagLink('policies', s.policy_id, s.policy_name, 'orange')}</td>
+        <td>${renderSubmissionStatus(s.status)}</td>
+        <td>${tagLink('policy_versions', s.policy_version_id, s.policy_version_name, 'orange')}</td>
         <td>${tagLink('leagues', s.league_id, s.league_name, 'blue')}</td>
+        <td>${s.division_entry_id ? link('division_entries', s.division_entry_id, '#'+s.division_entry_id) : '<span style="color:var(--text2)">-</span>'}</td>
         <td>${link('players', s.player_id, s.player_name)}</td>
-        <td>${s.pred_policy_id ? tagLink('policies', s.pred_policy_id, s.pred_policy_name, 'purple') : '<span style="color:var(--text2)">-</span>'}</td>
         <td style="color:var(--text2);font-size:11px;white-space:nowrap">${s.timestamp}</td>
         <td style="color:var(--text2);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${s.notes || '-'}</td>
+      </tr>`;
+      }).join('')}</tbody>
+    </table></div>
+  `;
+}
+
+function renderDivisionEntries() {
+  return `
+    ${renderPageHeader('Division Entries', `${state.division_entries.length} placements`, 'division_entries')}
+    <div class="table-container"><table>
+      <thead><tr><th>ID</th><th>Policy</th><th>League</th><th>Division</th><th>Source</th><th>Player</th><th>Notes</th></tr></thead>
+      <tbody>${state.division_entries.map(pl => `<tr>
+        <td>${link('division_entries', pl.id, pl.id)}</td>
+        <td>${tagLink('policy_versions', pl.policy_version_id, pl.policy_version_name, 'orange')}</td>
+        <td>${tagLink('leagues', pl.league_id, pl.league_name, 'blue')}</td>
+        <td>${pl.division_id ? tagLink('divisions', pl.division_id, pl.division_name, 'green') : '<span style="color:var(--text2)">-</span>'}</td>
+        <td>${renderEntrySource(pl)}</td>
+        <td>${link('players', pl.player_id, pl.player_name)}</td>
+        <td style="color:var(--text2)">${pl.notes || '-'}</td>
       </tr>`).join('')}</tbody>
     </table></div>
   `;
 }
 
-function renderPlacements() {
+function renderDivisionEntryEvents() {
   return `
-    ${renderPageHeader('Placements', `${state.placements.length} placements`, 'placements')}
+    ${renderPageHeader('Division History', `${state.division_entry_events.length} membership changes`, 'division_entry_events')}
     <div class="table-container"><table>
-      <thead><tr><th>ID</th><th>Policy</th><th>League</th><th>Division</th><th>Player</th><th>Notes</th></tr></thead>
-      <tbody>${state.placements.map(pl => `<tr>
-        <td>${link('placements', pl.id, pl.id)}</td>
-        <td>${tagLink('policies', pl.policy_id, pl.policy_name, 'orange')}</td>
-        <td>${tagLink('leagues', pl.league_id, pl.league_name, 'blue')}</td>
-        <td>${pl.division_id ? tagLink('divisions', pl.division_id, pl.division_name, 'green') : '<span style="color:var(--text2)">-</span>'}</td>
-        <td>${link('players', pl.player_id, pl.player_name)}</td>
-        <td style="color:var(--text2)">${pl.notes || '-'}</td>
+      <thead><tr><th>ID</th><th>Type</th><th>Policy</th><th>League</th><th>From</th><th>To</th><th>Source</th><th>Time</th></tr></thead>
+      <tbody>${state.division_entry_events.map(entry => `<tr>
+        <td>${link('division_entry_events', entry.id, entry.id)}</td>
+        <td><span class="tag tag-${entry.event_type === 'move' ? 'blue' : 'green'}">${entry.event_type}</span></td>
+        <td>${tagLink('policy_versions', entry.policy_version_id, entry.policy_version_name, 'orange')}</td>
+        <td>${tagLink('leagues', entry.league_id, entry.league_name, 'blue')}</td>
+        <td>${entry.from_division_id ? tagLink('divisions', entry.from_division_id, entry.from_division_name, 'purple') : '<span style="color:var(--text2)">-</span>'}</td>
+        <td>${tagLink('divisions', entry.to_division_id, entry.to_division_name, 'green')}</td>
+        <td>${entry.placement_id ? link('division_entries', entry.placement_id, `Placement #${entry.placement_id}`) : '<span style="color:var(--text2)">-</span>'}</td>
+        <td style="color:var(--text2);font-size:11px;white-space:nowrap">${entry.created_at}</td>
       </tr>`).join('')}</tbody>
     </table></div>
   `;
@@ -1316,11 +1444,11 @@ function renderLeagues() {
               <h3 style="margin:0">${link('leagues', l.id, l.name)}</h3>
               ${tagLink('mods', l.mod_id, l.mod_name, 'orange')}
               <span style="color:var(--text2);font-size:12px">${l.rules}</span>
-              <span style="color:var(--text2);font-size:12px;margin-left:auto">Commissioner: ${link('commissioners', l.commissioner_id, l.commissioner_name)}</span>
+              <span style="color:var(--text2);font-size:12px;margin-left:auto">Commissioner: <span class="tag tag-purple">${l.commissioner_key}</span></span>
             </div>
             <div style="color:var(--text2);font-size:12px;margin-bottom:12px">Members: ${members.map(m => tagLink('players', m.player_id, m.player_name, 'green')).join(' ') || 'none'}</div>
             ${divs.map(d => {
-              const pols = state.division_policies.filter(dp => dp.division_id === d.id);
+              const pols = state.division_entries.filter(dp => dp.division_id === d.id);
               return `<div style="margin-bottom:12px;padding:10px 12px;background:var(--surface2);border-radius:6px">
                 <div style="margin-bottom:6px">
                   ${link('divisions', d.id, '<strong>'+d.name+'</strong>')} <span class="tag tag-purple" style="font-size:10px">L${d.level}</span>
@@ -1342,9 +1470,9 @@ function renderDivisions() {
   return `
     ${renderPageHeader('Divisions', `${state.divisions.length} divisions`, 'divisions')}
     <div class="table-container"><table>
-      <thead><tr><th>ID</th><th>Name</th><th>League</th><th>Game</th><th>Level</th><th>Policies</th></tr></thead>
+      <thead><tr><th>ID</th><th>Name</th><th>League</th><th>Game</th><th>Level</th><th>Policy Versions</th></tr></thead>
       <tbody>${state.divisions.map(d => {
-        const pols = state.division_policies.filter(dp => dp.division_id === d.id);
+        const pols = state.division_entries.filter(dp => dp.division_id === d.id);
         return `<tr>
           <td>${d.id}</td>
           <td>${link('divisions', d.id, '<strong>'+d.name+'</strong>')}</td>
@@ -1381,16 +1509,15 @@ function renderProjects() {
 
 function renderExperienceRequests() {
   return `
-    ${renderPageHeader('Experience Requests', `${state.experience_requests.length} requests`, 'experience_requests')}
+    ${renderPageHeader('Episode Requests', `${state.episode_requests.length} requests`, 'episode_requests')}
     <div class="table-container"><table>
-      <thead><tr><th>ID</th><th>User</th><th>Policies</th><th>Episodes</th><th>Seed</th><th>Created</th></tr></thead>
-      <tbody>${state.experience_requests.map(er => {
-        let pids = []; try { pids = JSON.parse(er.policy_ids || '[]'); } catch(e) {}
+      <thead><tr><th>ID</th><th>Requester</th><th>Variant</th><th>Status</th><th>Seed</th><th>Created</th></tr></thead>
+      <tbody>${state.episode_requests.map(er => {
         return `<tr>
-          <td>${link('experience_requests', er.id, er.id)}</td>
-          <td>${link('users', er.user_id, er.user_name)}</td>
-          <td>${pids.map(pid => { const pol = state.policies.find(p=>p.id===pid); return pol ? tagLink('policies', pid, pol.name, 'orange') : `<span class="tag tag-orange">#${pid}</span>`; }).join(' ')}</td>
-          <td><span class="tag tag-purple">${er.num_episodes}</span></td>
+          <td>${link('episode_requests', er.id, er.id)}</td>
+          <td>${link('users', er.requester_user_id, er.requester_name)}</td>
+          <td>${tagLink('variants', er.variant_id, er.variant_name, 'green')}</td>
+          <td><span class="tag tag-${er.status==='completed'?'green':er.status==='failed'?'red':'orange'}">${er.status}</span></td>
           <td style="color:var(--text2)">${er.seed != null ? er.seed : '-'}</td>
           <td style="color:var(--text2);font-size:11px">${er.created_at}</td>
         </tr>`;
@@ -1415,56 +1542,45 @@ function renderVariants() {
   `;
 }
 
-function renderCommissioners() {
-  return `
-    ${renderPageHeader('Commissioners', `${state.commissioners.length} commissioners`, 'commissioners')}
-    ${state.commissioners.map(c => {
-      const lgs = state.leagues.filter(l => l.commissioner_id === c.id);
-      return `<div class="detail-card" style="margin-bottom:16px">
-        <h3>${link('commissioners', c.id, c.name)}</h3>
-        <div style="color:var(--text2);font-size:12px;margin:8px 0">${c.strategy || '-'}</div>
-        <div class="items">${lgs.map(l => tagLink('leagues', l.id, l.name, 'blue')).join(' ') || '<span style="color:var(--text2);font-size:12px">No leagues</span>'}</div>
-      </div>`;
-    }).join('')}
-  `;
-}
+
 
 function renderRankings() {
   return `
     ${renderPageHeader('Rankings', 'Policy standings plus derived player and user leaderboards', 'rankings')}
     <div class="detail-section"><h3>Policy Rankings</h3>
     <div class="table-container"><table>
-      <thead><tr><th>Rank</th><th>Policy</th><th>League</th><th>Division</th><th>Player</th><th>Timestamp</th></tr></thead>
-      <tbody>${state.rank_policies.map(r => `<tr>
+      <thead><tr><th>Rank</th><th>Policy</th><th>Round</th><th>Division</th><th>League</th><th>Player</th><th>Score</th></tr></thead>
+      <tbody>${state.round_results.map(r => `<tr>
         <td><strong>#${r.rank}</strong></td>
-        <td>${tagLink('policies', r.policy_id, r.policy_name, 'orange')}</td>
-        <td>${tagLink('leagues', r.league_id, r.league_name, 'blue')}</td>
+        <td>${tagLink('policy_versions', r.policy_version_id, r.policy_version_name, 'orange')}</td>
+        <td>${link('rounds', r.round_id, 'Round #'+r.round_id)}</td>
         <td>${r.division_id ? tagLink('divisions', r.division_id, r.division_name, 'green') : '-'}</td>
+        <td>${tagLink('leagues', 0, r.league_name, 'blue')}</td>
         <td>${link('players', r.player_id, r.player_name)}</td>
-        <td style="color:var(--text2);font-size:11px">${r.timestamp}</td>
+        <td style="color:var(--text2)">${r.score}</td>
       </tr>`).join('')}</tbody>
     </table></div></div>
     <div class="detail-section"><h3>Player Rankings</h3>
     <div class="table-container"><table>
-      <thead><tr><th>Rank</th><th>Player</th><th>League</th><th>Division</th><th>User</th><th>Timestamp</th></tr></thead>
+      <thead><tr><th>Rank</th><th>Player</th><th>League</th><th>Division</th><th>Round</th><th>User</th></tr></thead>
       <tbody>${state.rank_players.map(r => `<tr>
         <td><strong>#${r.rank}</strong></td>
         <td>${tagLink('players', r.player_id, r.player_name, 'green')}</td>
         <td>${tagLink('leagues', r.league_id, r.league_name, 'blue')}</td>
         <td>${r.division_id ? tagLink('divisions', r.division_id, r.division_name, 'green') : '-'}</td>
+        <td>${link('rounds', r.round_id, 'Round #'+r.round_id)}</td>
         <td>${link('users', r.user_id, r.user_name)}</td>
-        <td style="color:var(--text2);font-size:11px">${r.timestamp}</td>
       </tr>`).join('')}</tbody>
     </table></div></div>
     <div class="detail-section"><h3>User Rankings</h3>
     <div class="table-container"><table>
-      <thead><tr><th>Rank</th><th>User</th><th>League</th><th>Division</th><th>Timestamp</th></tr></thead>
+      <thead><tr><th>Rank</th><th>User</th><th>League</th><th>Division</th><th>Round</th></tr></thead>
       <tbody>${state.rank_users.map(r => `<tr>
         <td><strong>#${r.rank}</strong></td>
         <td>${tagLink('users', r.user_id, r.user_name, 'purple')}</td>
         <td>${tagLink('leagues', r.league_id, r.league_name, 'blue')}</td>
         <td>${r.division_id ? tagLink('divisions', r.division_id, r.division_name, 'green') : '-'}</td>
-        <td style="color:var(--text2);font-size:11px">${r.timestamp}</td>
+        <td>${link('rounds', r.round_id, 'Round #'+r.round_id)}</td>
       </tr>`).join('')}</tbody>
     </table></div></div>
   `;
@@ -1474,14 +1590,14 @@ function renderEpisodes() {
   return `
     ${renderPageHeader('Episodes', `${state.episodes.length} episodes`, 'episodes')}
     <div class="table-container"><table>
-      <thead><tr><th>ID</th><th>Variant</th><th>Seed</th><th>Policies</th></tr></thead>
+      <thead><tr><th>ID</th><th>Variant</th><th>Seed</th><th>Policy Versions</th></tr></thead>
       <tbody>${state.episodes.map(e => {
         const eps = state.episode_policies.filter(ep => ep.episode_id === e.id);
         return `<tr>
           <td>${link('episodes', e.id, e.id)}</td>
           <td>${tagLink('variants', e.variant_id, e.variant_name, 'blue')}</td>
           <td style="color:var(--text2)">${e.seed}</td>
-          <td>${eps.sort((a,b)=>b.score-a.score).map(ep => tagLink('policies', ep.policy_id, ep.policy_name+': '+ep.score, 'orange')).join(' ')}</td>
+          <td>${eps.sort((a,b)=>b.score-a.score).map(ep => tagLink('policy_versions', ep.policy_version_id, ep.policy_version_name+': '+ep.score, 'orange')).join(' ')}</td>
         </tr>`;
       }).join('')}</tbody>
     </table></div>
@@ -1525,14 +1641,14 @@ function renderUserDetail(id) {
       </div>
       <div class="detail-section"><h3>Players (${players.length})</h3>
         <div class="items">${players.map(p => {
-          const pols = state.policies.filter(pol => pol.player_id === p.id);
+          const pols = state.policy_versions.filter(pol => pol.player_id === p.id);
           return `<div class="detail-card" style="flex:1;min-width:200px">
             <h3>${link('players', p.id, p.name)}</h3>
-            <div class="items" style="margin-top:8px">${pols.map(pol => tagLink('policies', pol.id, pol.name, 'orange')).join(' ')}</div>
+            <div class="items" style="margin-top:8px">${pols.map(pol => tagLink('policy_versions', pol.id, pol.name, 'orange')).join(' ')}</div>
           </div>`;
         }).join('')}</div>
       </div>
-      ${(() => { const ranks = state.rank_users.filter(r => r.user_id === id); return ranks.length ? `<div class="detail-section"><h3>Rankings</h3><div class="items">${ranks.map(r => `<div class="pill"><span class="dot" style="background:var(--green)"></span>#${r.rank} ${r.league_name} <span style="color:var(--text2)">${r.timestamp.slice(0,10)}</span></div>`).join('')}</div></div>` : ''; })()}
+      ${(() => { const ranks = state.rank_users.filter(r => r.user_id === id); return ranks.length ? `<div class="detail-section"><h3>Rankings</h3><div class="items">${ranks.map(r => `<div class="pill"><span class="dot" style="background:var(--green)"></span>#${r.rank} ${r.league_name} <span style="color:var(--text2)">${('Round #'+r.round_id)}</span></div>`).join('')}</div></div>` : ''; })()}
       ${ownedGames.length ? `<div class="detail-section"><h3>Owned Games</h3><div class="items">${ownedGames.map(g => tagLink('games', g.id, g.name, 'blue')).join(' ')}</div></div>` : ''}
       ${ownedMods.length ? `<div class="detail-section"><h3>Owned Mods</h3><div class="items">${ownedMods.map(m => tagLink('mods', m.id, m.name, 'orange')).join(' ')}</div></div>` : ''}
       <div class="action-bar">
@@ -1546,7 +1662,7 @@ function renderUserDetail(id) {
 function renderPlayerDetail(id) {
   const p = state.players.find(x => x.id === id);
   if (!p) return '<div class="loading">Player not found</div>';
-  const pols = state.policies.filter(pol => pol.player_id === id);
+  const pols = state.policy_versions.filter(pol => pol.player_id === id);
   return `
     <div class="breadcrumb"><a onclick="navigate('players')">Players</a> / ${p.name}</div>
     <div class="page-header"><div><h2>${p.name}</h2><div class="subtitle">Owned by ${link('users', p.user_id, p.user_name)}</div></div></div>
@@ -1555,15 +1671,15 @@ function renderPlayerDetail(id) {
         <div class="label">ID</div><div>${p.id}</div>
         <div class="label">User</div><div>${link('users', p.user_id, p.user_name)}</div>
       </div>
-      ${(() => { const ranks = state.rank_players.filter(r => r.player_id === id); return ranks.length ? `<div class="detail-section"><h3>Rankings</h3><div class="items">${ranks.map(r => `<div class="pill"><span class="dot" style="background:var(--green)"></span>#${r.rank} ${r.league_name} <span style="color:var(--text2)">${r.timestamp.slice(0,10)}</span></div>`).join('')}</div></div>` : ''; })()}
+      ${(() => { const ranks = state.rank_players.filter(r => r.player_id === id); return ranks.length ? `<div class="detail-section"><h3>Rankings</h3><div class="items">${ranks.map(r => `<div class="pill"><span class="dot" style="background:var(--green)"></span>#${r.rank} ${r.league_name} <span style="color:var(--text2)">${('Round #'+r.round_id)}</span></div>`).join('')}</div></div>` : ''; })()}
       <div class="detail-section"><h3>League Memberships</h3>
         <div class="items">${state.player_league_memberships.filter(m => m.player_id === id).map(m => tagLink('leagues', m.league_id, m.league_name, 'blue')).join(' ')}</div>
       </div>
       <div class="detail-section"><h3>Policies (${pols.length})</h3>
         <div class="items">${pols.map(pol => {
-          const divPols = state.division_policies.filter(dp => dp.policy_id === pol.id);
+          const divPols = state.division_entries.filter(dp => dp.policy_version_id === pol.id);
           return `<div class="detail-card" style="flex:1;min-width:200px">
-            <h3>${link('policies', pol.id, pol.name)}</h3>
+            <h3>${link('policy_versions', pol.id, pol.name)}</h3>
             <div class="items" style="margin-top:8px">${divPols.map(dp => divisionMembershipLink(dp, 'purple')).join(' ')}</div>
           </div>`;
         }).join('')}</div>
@@ -1582,12 +1698,12 @@ function renderPlayerDetail(id) {
   `;
 }
 
-function renderPolicyDetail(id) {
-  const pol = state.policies.find(x => x.id === id);
+function renderPolicyVersionDetail(id) {
+  const pol = state.policy_versions.find(x => x.id === id);
   if (!pol) return '<div class="loading">Policy not found</div>';
-  const divPols = state.division_policies.filter(dp => dp.policy_id === id);
+  const divPols = state.division_entries.filter(dp => dp.policy_version_id === id);
   return `
-    <div class="breadcrumb"><a onclick="navigate('policies')">Policies</a> / ${pol.name}</div>
+    <div class="breadcrumb"><a onclick="navigate('policy_versions')">Policy Versions</a> / ${pol.name}</div>
     <div class="page-header"><div><h2>${pol.name}</h2><div class="subtitle">Bot policy</div></div></div>
     <div class="detail-card">
       <div class="field-grid">
@@ -1597,15 +1713,15 @@ function renderPolicyDetail(id) {
         <div class="label">Description</div><div>${pol.description || '<span style="color:var(--text2)">-</span>'}</div>
         <div class="label">Notes</div><div>${pol.notes || '<span style="color:var(--text2)">-</span>'}</div>
       </div>
-      ${(() => { const ranks = state.rank_policies.filter(r => r.policy_id === id); return ranks.length ? `<div class="detail-section"><h3>Rankings</h3><div class="items">${ranks.map(r => `<div class="pill"><span class="dot" style="background:var(--green)"></span>#${r.rank} ${r.league_name} <span style="color:var(--text2)">${r.timestamp.slice(0,10)}</span></div>`).join('')}</div></div>` : ''; })()}
+      ${(() => { const ranks = state.round_results.filter(r => r.policy_version_id === id); return ranks.length ? `<div class="detail-section"><h3>Rankings</h3><div class="items">${ranks.map(r => `<div class="pill"><span class="dot" style="background:var(--green)"></span>#${r.rank} ${r.league_name} <span style="color:var(--text2)">${('Round #'+r.round_id)}</span></div>`).join('')}</div></div>` : ''; })()}
       <div class="detail-section"><h3>Submissions</h3>
-        <div class="items">${state.submissions.filter(s => s.policy_id === id).map(s =>
+        <div class="items">${state.submissions.filter(s => s.policy_version_id === id).map(s =>
           `<div class="pill clickable" onclick="navigate('submissions/${s.id}')"><span class="dot" style="background:var(--green)"></span>${s.league_name} <span style="color:var(--text2)">${s.timestamp.slice(0,10)}</span></div>`
         ).join('')}</div>
       </div>
-      <div class="detail-section"><h3>Placements</h3>
-        <div class="items">${state.placements.filter(p => p.policy_id === id).map(p =>
-          `<div class="pill clickable" onclick="navigate('placements/${p.id}')"><span class="dot" style="background:var(--blue)"></span>${p.league_name}${p.division_name ? ' → '+p.division_name : ''}</div>`
+      <div class="detail-section"><h3>Division Entries</h3>
+        <div class="items">${state.division_entries.filter(p => p.policy_version_id === id).map(p =>
+          `<div class="pill clickable" onclick="navigate('division_entries/${p.id}')"><span class="dot" style="background:var(--blue)"></span>${p.league_name}${p.division_name ? ' → '+p.division_name : ''}</div>`
         ).join('')}</div>
       </div>
       <div class="detail-section"><h3>Divisions (${divPols.length})</h3>
@@ -1636,7 +1752,7 @@ function renderGameDetail(id) {
           const divs = state.divisions.filter(d => d.league_id === l.id);
           return `<div class="detail-card" style="flex:1;min-width:250px">
             <h3>${link('leagues', l.id, l.name)}</h3>
-            <div class="meta">Commissioner: ${link('commissioners', l.commissioner_id, l.commissioner_name)} &middot; ${l.rules}</div>
+            <div class="meta">Commissioner: <span class="tag tag-purple">${l.commissioner_key}</span> &middot; ${l.rules}</div>
             <div class="items">${divs.map(d => tagLink('divisions', d.id, d.name+' (L'+d.level+')', 'green')).join(' ')}</div>
           </div>`;
         }).join('')}</div>
@@ -1645,26 +1761,31 @@ function renderGameDetail(id) {
   `;
 }
 
-function renderPlacementDetail(id) {
-  const pl = state.placements.find(x => x.id === id);
-  if (!pl) return '<div class="loading">Placement not found</div>';
+function renderDivisionEntryDetail(id) {
+  const pl = state.division_entries.find(x => x.id === id);
+  if (!pl) return '<div class="loading">Division entry not found</div>';
+  const relatedHistory = state.division_entry_events.filter(entry => entry.division_entry_id === id);
   return `
-    <div class="breadcrumb"><a onclick="navigate('placements')">Placements</a> / #${pl.id}</div>
-    <div class="page-header"><div><h2>Placement #${pl.id}</h2><div class="subtitle">${pl.policy_name} → ${pl.league_name}</div></div></div>
+    <div class="breadcrumb"><a onclick="navigate('division_entries')">Division Entries</a> / #${pl.id}</div>
+    <div class="page-header"><div><h2>Division Entry #${pl.id}</h2><div class="subtitle">${pl.policy_version_name} → ${pl.league_name}</div></div></div>
     <div class="detail-card">
       <div class="field-grid">
         <div class="label">ID</div><div>${pl.id}</div>
-        <div class="label">Policy</div><div>${link('policies', pl.policy_id, pl.policy_name)}</div>
+        <div class="label">Policy</div><div>${link('policy_versions', pl.policy_version_id, pl.policy_version_name)}</div>
         <div class="label">League</div><div>${link('leagues', pl.league_id, pl.league_name)}</div>
-        <div class="label">Division</div><div>${pl.division_id ? link('divisions', pl.division_id, pl.division_name + ' (L' + pl.division_level + ')') : '-'}</div>
+        <div class="label">Division</div><div>${link('divisions', pl.division_id, pl.division_name + ' (L' + pl.division_level + ')')}</div>
+        
         <div class="label">Player</div><div>${link('players', pl.player_id, pl.player_name)}</div>
         <div class="label">Game</div><div>${pl.game_name}</div>
+        <div class="label">Active</div><div><span class="tag tag-${pl.is_active ? 'green' : 'red'}">${pl.is_active ? 'yes' : 'no'}</span></div>
+        <div class="label">Champion</div><div><span class="tag tag-${pl.is_champion ? 'green' : 'purple'}">${pl.is_champion ? 'yes' : 'no'}</span></div>
+        <div class="label">Created</div><div>${pl.created_at}</div>
         <div class="label">Notes</div><div>${pl.notes || '<span style="color:var(--text2)">-</span>'}</div>
       </div>
-      <div class="detail-section"><h3>Results</h3>
-        <div class="items">${state.placement_results.filter(pr => pr.placement_id === id).map(pr =>
-          `<div class="pill clickable" onclick="navigate('divisions/${pr.division_id}')"><span class="dot" style="background:var(--green)"></span>${pr.division_name} <span style="color:var(--text2)">L${pr.division_level}</span></div>`
-        ).join('') || '<span style="color:var(--text2)">No results yet</span>'}</div>
+      <div class="detail-section"><h3>Membership Changes (${relatedHistory.length})</h3>
+        <div class="items">${relatedHistory.map(entry =>
+          `<div class="pill clickable" onclick="navigate('division_entry_events/${entry.id}')"><span class="dot" style="background:var(--blue)"></span>${entry.from_division_name ? entry.from_division_name + ' → ' : ''}${entry.to_division_name}</div>`
+        ).join('') || '<span style="color:var(--text2)">No membership change was recorded for this placement</span>'}</div>
       </div>
     </div>
   `;
@@ -1673,55 +1794,63 @@ function renderPlacementDetail(id) {
 function renderSubmissionDetail(id) {
   const s = state.submissions.find(x => x.id === id);
   if (!s) return '<div class="loading">Submission not found</div>';
+  const entry = s.division_entry_id ? state.division_entries.find(de => de.id === s.division_entry_id) : null;
   let prefs = {};
   try { prefs = JSON.parse(s.preferences || '{}'); } catch(e) {}
   return `
     <div class="breadcrumb"><a onclick="navigate('submissions')">Submissions</a> / #${s.id}</div>
-    <div class="page-header"><div><h2>Submission #${s.id}</h2><div class="subtitle">${s.policy_name} → ${s.league_name}</div></div></div>
+    <div class="page-header"><div><h2>Submission #${s.id}</h2><div class="subtitle">${s.policy_version_name} → ${s.league_name}</div></div></div>
     <div class="detail-card">
       <div class="field-grid">
         <div class="label">ID</div><div>${s.id}</div>
-        <div class="label">Policy</div><div>${link('policies', s.policy_id, s.policy_name)}</div>
+        <div class="label">Policy</div><div>${link('policy_versions', s.policy_version_id, s.policy_version_name)}</div>
         <div class="label">League</div><div>${link('leagues', s.league_id, s.league_name)}</div>
         <div class="label">Player</div><div>${link('players', s.player_id, s.player_name)}</div>
         <div class="label">Game</div><div>${s.game_name}</div>
-        <div class="label">Predecessor</div><div>${s.pred_policy_id ? link('policies', s.pred_policy_id, s.pred_policy_name) : '-'}</div>
+        <div class="label">Division Entry</div><div>${entry ? link('division_entries', entry.id, entry.division_name) : '<span style="color:var(--text2)">-</span>'}</div>
         <div class="label">Timestamp</div><div>${s.timestamp}</div>
         <div class="label">Notes</div><div>${s.notes || '<span style="color:var(--text2)">-</span>'}</div>
         <div class="label">Preferences</div><div><pre style="margin:0;color:var(--green);font-size:12px">${JSON.stringify(prefs, null, 2)}</pre></div>
-        <div class="label">Status</div><div><span class="tag tag-${s.status==='placed'?'green':s.status==='rejected'?'red':'orange'}">${s.status}</span></div>
+        <div class="label">Status</div><div>${renderSubmissionStatus(s.status)}</div>
       </div>
-      ${s.status === 'pending' ? `
+      ${s.status !== 'rejected' ? `
       <div class="action-bar">
         <select id="place-division">${state.divisions.filter(d => d.league_id === s.league_id).map(d =>
           `<option value="${d.id}">${d.name} (${d.league_name})</option>`
         ).join('')}</select>
-        <button class="btn btn-sm" onclick="placeSubmission(${s.id})">Place</button>
+        <button class="btn btn-sm" onclick="placeSubmission(${s.id})">${entry ? 'Move' : 'Place'}</button>
+        ${s.status === 'pending' ? `
         <input id="reject-notes" placeholder="Rejection reason (optional)" style="margin-left:8px" />
-        <button class="btn btn-sm" style="background:var(--red)" onclick="rejectSubmission(${s.id})">Reject</button>
+        <button class="btn btn-sm" style="background:var(--red)" onclick="rejectSubmission(${s.id})">Reject</button>` : ''}
       </div>` : ''}
     </div>
   `;
 }
 
-function renderCommissionerDetail(id) {
-  const c = state.commissioners.find(x => x.id === id);
-  if (!c) return '<div class="loading">Commissioner not found</div>';
-  const lgs = state.leagues.filter(l => l.commissioner_id === c.id);
+function renderDivisionEntryEventsDetail(id) {
+  const entry = state.division_entry_events.find(x => x.id === id);
+  if (!entry) return '<div class="loading">Division history entry not found</div>';
   return `
-    <div class="breadcrumb"><a onclick="navigate('commissioners')">Commissioners</a> / ${c.name}</div>
-    <div class="page-header"><div><h2>${c.name}</h2><div class="subtitle">Commissioner</div></div></div>
+    <div class="breadcrumb"><a onclick="navigate('division_entry_events')">Division History</a> / #${entry.id}</div>
+    <div class="page-header"><div><h2>Division History #${entry.id}</h2><div class="subtitle">${entry.policy_version_name} · ${entry.league_name}</div></div></div>
     <div class="detail-card">
       <div class="field-grid">
-        <div class="label">ID</div><div>${c.id}</div>
-        <div class="label">Strategy</div><div>${c.strategy || '<span style="color:var(--text2)">-</span>'}</div>
-      </div>
-      <div class="detail-section"><h3>Leagues (${lgs.length})</h3>
-        <div class="items">${lgs.map(l => tagLink('leagues', l.id, l.name + ' (' + l.game_name + ')', 'blue')).join(' ') || '<span style="color:var(--text2)">No leagues</span>'}</div>
+        <div class="label">ID</div><div>${entry.id}</div>
+        <div class="label">Policy</div><div>${link('policy_versions', entry.policy_version_id, entry.policy_version_name)}</div>
+        <div class="label">Player</div><div>${link('players', entry.player_id, entry.player_name)}</div>
+        <div class="label">League</div><div>${link('leagues', entry.league_id, entry.league_name)}</div>
+        <div class="label">Type</div><div><span class="tag tag-${entry.event_type === 'move' ? 'blue' : 'green'}">${entry.event_type}</span></div>
+        <div class="label">From Division</div><div>${entry.from_division_id ? link('divisions', entry.from_division_id, `${entry.from_division_name} (L${entry.from_division_level})`) : '<span style="color:var(--text2)">-</span>'}</div>
+        <div class="label">To Division</div><div>${link('divisions', entry.to_division_id, `${entry.to_division_name} (L${entry.to_division_level})`)}</div>
+        <div class="label">Division Entry</div><div>${entry.division_entry_id ? link('division_entries', entry.division_entry_id, `#${entry.division_entry_id}`) : '<span style="color:var(--text2)">-</span>'}</div>
+        <div class="label">Created</div><div>${entry.created_at}</div>
+        <div class="label">Notes</div><div>${entry.notes || '<span style="color:var(--text2)">-</span>'}</div>
       </div>
     </div>
   `;
 }
+
+
 
 function renderModDetail(id) {
   const m = state.mods.find(x => x.id === id);
@@ -1747,7 +1876,7 @@ function renderLeagueDetail(id) {
   if (!l) return '<div class="loading">League not found</div>';
   const divs = state.divisions.filter(d => d.league_id === id);
   const subs = state.submissions.filter(s => s.league_id === id);
-  const pls = state.placements.filter(p => p.league_id === id);
+  const pls = state.division_entries.filter(p => p.league_id === id);
   return `
     <div class="breadcrumb"><a onclick="navigate('leagues')">Leagues</a> / ${l.name}</div>
     <div class="page-header"><div><h2>${l.name}</h2><div class="subtitle">${l.rules}</div></div></div>
@@ -1756,7 +1885,7 @@ function renderLeagueDetail(id) {
         <div class="label">ID</div><div>${l.id}</div>
         <div class="label">Game</div><div>${link('games', l.game_id, l.game_name)}</div>
         <div class="label">Mod</div><div>${link('mods', l.mod_id, l.mod_name)}</div>
-        <div class="label">Commissioner</div><div>${link('commissioners', l.commissioner_id, l.commissioner_name)}</div>
+        <div class="label">Commissioner</div><div><span class="tag tag-purple">${l.commissioner_key}</span></div>
         <div class="label">Rules</div><div>${l.rules}</div>
       </div>
       <div class="detail-section"><h3>Members</h3>
@@ -1764,7 +1893,7 @@ function renderLeagueDetail(id) {
       </div>
       <div class="detail-section"><h3>Divisions (${divs.length})</h3>
         ${divs.map(d => {
-          const pols = state.division_policies.filter(dp => dp.division_id === d.id);
+          const pols = state.division_entries.filter(dp => dp.division_id === d.id);
           return `<div style="margin-bottom:12px;padding:10px 12px;background:var(--surface2);border-radius:6px">
             <div style="margin-bottom:6px">${link('divisions', d.id, '<strong>'+d.name+'</strong>')} <span class="tag tag-purple" style="font-size:10px">L${d.level}</span>
               <span style="color:var(--text2);font-size:11px;margin-left:8px">${pols.length} polic${pols.length!==1?'ies':'y'}</span>
@@ -1777,26 +1906,26 @@ function renderLeagueDetail(id) {
       </div>
       <div class="detail-section"><h3>Submissions (${subs.length})</h3>
         ${subs.length ? `<div class="table-container"><table>
-          <thead><tr><th>ID</th><th>Status</th><th>Policy</th><th>Player</th><th>Predecessor</th><th>Time</th><th>Notes</th></tr></thead>
+          <thead><tr><th>ID</th><th>Status</th><th>Policy</th><th>Player</th><th>Time</th><th>Notes</th></tr></thead>
           <tbody>${subs.map(s => `<tr>
             <td>${link('submissions', s.id, s.id)}</td>
-            <td><span class="tag tag-${s.status==='placed'?'green':s.status==='rejected'?'red':'orange'}">${s.status}</span></td>
-            <td>${tagLink('policies', s.policy_id, s.policy_name, 'orange')}</td>
+            <td>${renderSubmissionStatus(s.status)}</td>
+            <td>${tagLink('policy_versions', s.policy_version_id, s.policy_version_name, 'orange')}</td>
             <td>${link('players', s.player_id, s.player_name)}</td>
-            <td>${s.pred_policy_id ? tagLink('policies', s.pred_policy_id, s.pred_policy_name, 'purple') : '<span style="color:var(--text2)">-</span>'}</td>
             <td style="color:var(--text2);font-size:11px;white-space:nowrap">${s.timestamp}</td>
             <td style="color:var(--text2)">${s.notes || '-'}</td>
           </tr>`).join('')}</tbody>
         </table></div>` : '<span style="color:var(--text2)">No submissions</span>'}
       </div>
-      <div class="detail-section"><h3>Placements (${pls.length})</h3>
+      <div class="detail-section"><h3>Division Entries (${pls.length})</h3>
         ${pls.length ? `<div class="table-container"><table>
-          <thead><tr><th>ID</th><th>Policy</th><th>Player</th><th>Division</th><th>Notes</th></tr></thead>
+          <thead><tr><th>ID</th><th>Policy</th><th>Player</th><th>Division</th><th>Source</th><th>Notes</th></tr></thead>
           <tbody>${pls.map(pl => `<tr>
-            <td>${link('placements', pl.id, pl.id)}</td>
-            <td>${tagLink('policies', pl.policy_id, pl.policy_name, 'orange')}</td>
+            <td>${link('division_entries', pl.id, pl.id)}</td>
+            <td>${tagLink('policy_versions', pl.policy_version_id, pl.policy_version_name, 'orange')}</td>
             <td>${link('players', pl.player_id, pl.player_name)}</td>
             <td>${pl.division_id ? tagLink('divisions', pl.division_id, pl.division_name, 'green') : '<span style="color:var(--text2)">-</span>'}</td>
+            <td>${renderEntrySource(pl)}</td>
             <td style="color:var(--text2)">${pl.notes || '-'}</td>
           </tr>`).join('')}</tbody>
         </table></div>` : '<span style="color:var(--text2)">No placements</span>'}
@@ -1808,7 +1937,7 @@ function renderLeagueDetail(id) {
 function renderDivisionDetail(id) {
   const d = state.divisions.find(x => x.id === id);
   if (!d) return '<div class="loading">Division not found</div>';
-  const pols = state.division_policies.filter(dp => dp.division_id === id);
+  const pols = state.division_entries.filter(dp => dp.division_id === id);
   const rounds = state.rounds.filter(r => r.division_id === id);
   return `
     <div class="breadcrumb"><a onclick="navigate('divisions')">Divisions</a> / ${d.name}</div>
@@ -1863,22 +1992,25 @@ function renderProjectDetail(id) {
 }
 
 function renderExperienceRequestDetail(id) {
-  const er = state.experience_requests.find(x => x.id === id);
+  const er = state.episode_requests.find(x => x.id === id);
   if (!er) return '<div class="loading">Request not found</div>';
+  const erPolicies = (state.episode_request_policies || []).filter(p => p.episode_request_id === id);
   return `
-    <div class="breadcrumb"><a onclick="navigate('experience_requests')">XP Requests</a> / #${er.id}</div>
-    <div class="page-header"><div><h2>Request #${er.id}</h2><div class="subtitle">From ${er.user_name}</div></div></div>
+    <div class="breadcrumb"><a onclick="navigate('episode_requests')">Episode Requests</a> / #${er.id}</div>
+    <div class="page-header"><div><h2>Episode Request #${er.id}</h2><div class="subtitle">From ${er.requester_name}</div></div></div>
     <div class="detail-card">
       <div class="field-grid">
         <div class="label">ID</div><div>${er.id}</div>
-        <div class="label">User</div><div>${link('users', er.user_id, er.user_name)}</div>
-        <div class="label">Policies</div><div>${(() => { let pids=[]; try{pids=JSON.parse(er.policy_ids||'[]')}catch(e){} return pids.map(pid => { const pol=state.policies.find(p=>p.id===pid); return pol ? link('policies',pid,pol.name) : '#'+pid; }).join(', ') || '-'; })()}</div>
-        <div class="label">Episodes</div><div>${er.num_episodes}</div>
+        <div class="label">Requester</div><div>${link('users', er.requester_user_id, er.requester_name)}</div>
+        <div class="label">Variant</div><div>${tagLink('variants', er.variant_id, er.variant_name, 'green')}</div>
+        <div class="label">Status</div><div><span class="tag tag-${er.status==='completed'?'green':er.status==='failed'?'red':'orange'}">${er.status}</span></div>
         <div class="label">Seed</div><div>${er.seed != null ? er.seed : '-'}</div>
-        <div class="label">Config</div><div><pre style="margin:0;color:var(--green);font-size:12px">${(() => { try { return JSON.stringify(JSON.parse(er.mettagrid_config||'{}'),null,2); } catch(e) { return er.mettagrid_config; } })()}</pre></div>
         <div class="label">Notes</div><div>${er.notes || '<span style="color:var(--text2)">-</span>'}</div>
         <div class="label">Created</div><div>${er.created_at}</div>
       </div>
+      ${erPolicies.length ? `<div class="detail-section"><h3>Policy Versions (${erPolicies.length})</h3>
+        <div class="items">${erPolicies.map(p => tagLink('policy_versions', p.policy_version_id, p.policy_version_name, 'orange')).join(' ')}</div>
+      </div>` : ''}
     </div>
   `;
 }
@@ -1936,7 +2068,7 @@ function renderEpisodeDetail(id) {
           <thead><tr><th>#</th><th>Policy</th><th>Agent</th><th>Player</th><th>Score</th><th>Logs</th></tr></thead>
           <tbody>${eps.map((ep, i) => `<tr>
             <td>${i+1}</td>
-            <td>${link('policies', ep.policy_id, '<strong>'+ep.policy_name+'</strong>')}</td>
+            <td>${link('policy_versions', ep.policy_version_id, '<strong>'+ep.policy_version_name+'</strong>')}</td>
             <td><span class="tag tag-purple">${ep.agent_id}</span></td>
             <td>${link('players', ep.player_id, ep.player_name)}</td>
             <td><span class="tag tag-${i===0?'green':i===1?'blue':'purple'}">${ep.score}</span></td>
@@ -1984,13 +2116,14 @@ function renderRoundDetail(id) {
 }
 
 // --- Routing ---
-const listViews = { users: renderUsers, players: renderPlayers, policies: renderPolicies, submissions: renderSubmissions, placements: renderPlacements, games: renderGames, mods: renderMods, commissioners: renderCommissioners, leagues: renderLeagues, divisions: renderDivisions, projects: renderProjects, experience_requests: renderExperienceRequests, rankings: renderRankings, variants: renderVariants, episodes: renderEpisodes, rounds: renderRounds, relationship_map: renderRelationshipMap };
-const detailViews = { users: renderUserDetail, players: renderPlayerDetail, policies: renderPolicyDetail, submissions: renderSubmissionDetail, placements: renderPlacementDetail, games: renderGameDetail, mods: renderModDetail, commissioners: renderCommissionerDetail, leagues: renderLeagueDetail, divisions: renderDivisionDetail, projects: renderProjectDetail, experience_requests: renderExperienceRequestDetail, variants: renderVariantDetail, episodes: renderEpisodeDetail, rounds: renderRoundDetail };
+const listViews = { users: renderUsers, players: renderPlayers, policy_versions: renderPolicyVersions, submissions: renderSubmissions, division_entries: renderDivisionEntries, division_entry_events: renderDivisionEntryEvents, games: renderGames, mods: renderMods, leagues: renderLeagues, divisions: renderDivisions, projects: renderProjects, episode_requests: renderExperienceRequests, rankings: renderRankings, variants: renderVariants, episodes: renderEpisodes, rounds: renderRounds, relationship_map: renderRelationshipMap };
+const detailViews = { users: renderUserDetail, players: renderPlayerDetail, policy_versions: renderPolicyVersionDetail, submissions: renderSubmissionDetail, division_entries: renderDivisionEntryDetail, division_entry_events: renderDivisionEntryEventsDetail, games: renderGameDetail, mods: renderModDetail, leagues: renderLeagueDetail, divisions: renderDivisionDetail, projects: renderProjectDetail, episode_requests: renderExperienceRequestDetail, variants: renderVariantDetail, episodes: renderEpisodeDetail, rounds: renderRoundDetail };
 
 function navigate(path) {
   const parts = path.split('/');
   const section = parts[0];
   const id = parts[1] ? parseInt(parts[1]) : null;
+  state.relationshipMapHover = null;
 
   // Highlight sidebar
   const sidebarSection = id ? section : path;
@@ -2004,6 +2137,7 @@ function navigate(path) {
   } else {
     document.getElementById('content').innerHTML = listViews.users();
   }
+  if (section === 'relationship_map') applyRelationshipFocusState();
 
   history.pushState(null, '', `/${path}`);
 }
@@ -2013,12 +2147,14 @@ window.addEventListener('popstate', () => {
   const parts = path.split('/');
   const section = parts[0];
   const id = parts[1] ? parseInt(parts[1]) : null;
+  state.relationshipMapHover = null;
   document.querySelectorAll('.nav-item').forEach(el => el.classList.toggle('active', el.dataset.view === section));
   if (id && detailViews[section]) {
     document.getElementById('content').innerHTML = detailViews[section](id);
   } else if (listViews[section]) {
     document.getElementById('content').innerHTML = listViews[section]();
   }
+  if (section === 'relationship_map') applyRelationshipFocusState();
 });
 
 document.querySelectorAll('.nav-item').forEach(el => {

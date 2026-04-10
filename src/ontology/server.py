@@ -13,35 +13,38 @@ UI_PATH = os.path.join(os.path.dirname(__file__), "ui.html")
 
 RANK_PLAYERS_SQL = """
     WITH best_player_ranks AS (
-        SELECT rp.league_id, rp.division_id, rp.timestamp, pol.player_id, MIN(rp.rank) AS rank
-        FROM rank_policies rp
-        JOIN policies pol ON rp.policy_id = pol.id
-        GROUP BY rp.league_id, rp.division_id, rp.timestamp, pol.player_id
+        SELECT r.division_id, rr.round_id, pv.player_id, MIN(rr.rank) AS rank
+        FROM round_results rr
+        JOIN rounds r ON rr.round_id = r.id
+        JOIN policy_versions pv ON rr.policy_version_id = pv.id
+        GROUP BY r.division_id, rr.round_id, pv.player_id
     )
-    SELECT bpr.*, p.name as player_name, l.name as league_name,
-           d.name as division_name, u.name as user_name, p.user_id
+    SELECT bpr.*, p.name as player_name, u.name as user_name, p.user_id,
+           d.name as division_name, d.league_id, l.name as league_name
     FROM best_player_ranks bpr
     JOIN players p ON bpr.player_id = p.id
     JOIN users u ON p.user_id = u.id
-    JOIN leagues l ON bpr.league_id = l.id
-    LEFT JOIN divisions d ON bpr.division_id = d.id
-    ORDER BY bpr.league_id, bpr.timestamp DESC, bpr.rank, bpr.player_id
+    JOIN divisions d ON bpr.division_id = d.id
+    JOIN leagues l ON d.league_id = l.id
+    ORDER BY d.league_id, bpr.round_id DESC, bpr.rank, bpr.player_id
 """
 
 RANK_USERS_SQL = """
     WITH best_user_ranks AS (
-        SELECT rp.league_id, rp.division_id, rp.timestamp, p.user_id, MIN(rp.rank) AS rank
-        FROM rank_policies rp
-        JOIN policies pol ON rp.policy_id = pol.id
-        JOIN players p ON pol.player_id = p.id
-        GROUP BY rp.league_id, rp.division_id, rp.timestamp, p.user_id
+        SELECT r.division_id, rr.round_id, p.user_id, MIN(rr.rank) AS rank
+        FROM round_results rr
+        JOIN rounds r ON rr.round_id = r.id
+        JOIN policy_versions pv ON rr.policy_version_id = pv.id
+        JOIN players p ON pv.player_id = p.id
+        GROUP BY r.division_id, rr.round_id, p.user_id
     )
-    SELECT bur.*, u.name as user_name, l.name as league_name, d.name as division_name
+    SELECT bur.*, u.name as user_name,
+           d.name as division_name, d.league_id, l.name as league_name
     FROM best_user_ranks bur
     JOIN users u ON bur.user_id = u.id
-    JOIN leagues l ON bur.league_id = l.id
-    LEFT JOIN divisions d ON bur.division_id = d.id
-    ORDER BY bur.league_id, bur.timestamp DESC, bur.rank, bur.user_id
+    JOIN divisions d ON bur.division_id = d.id
+    JOIN leagues l ON d.league_id = l.id
+    ORDER BY d.league_id, bur.round_id DESC, bur.rank, bur.user_id
 """
 
 
@@ -125,8 +128,6 @@ class Handler(SimpleHTTPRequestHandler):
     def handle_api(self, path):
         if path == "/api/schema":
             return read_schema()
-        if path == "/api/commissioners":
-            return query("SELECT * FROM commissioners")
         if path == "/api/users":
             return query("SELECT * FROM users")
         if path == "/api/players":
@@ -134,11 +135,11 @@ class Handler(SimpleHTTPRequestHandler):
                 SELECT p.*, u.name as user_name
                 FROM players p JOIN users u ON p.user_id = u.id
             """)
-        if path == "/api/policies":
+        if path == "/api/policy_versions":
             return query("""
-                SELECT pol.*, p.name as player_name, u.name as user_name
-                FROM policies pol
-                JOIN players p ON pol.player_id = p.id
+                SELECT pv.*, p.name as player_name, u.name as user_name
+                FROM policy_versions pv
+                JOIN players p ON pv.player_id = p.id
                 JOIN users u ON p.user_id = u.id
             """)
         if path == "/api/games":
@@ -155,12 +156,10 @@ class Handler(SimpleHTTPRequestHandler):
             """)
         if path == "/api/leagues":
             return query("""
-                SELECT l.*, g.name as game_name, m.name as mod_name,
-                       c.name as commissioner_name, c.strategy as commissioner_strategy
+                SELECT l.*, g.name as game_name, m.name as mod_name
                 FROM leagues l
                 JOIN games g ON l.game_id = g.id
                 JOIN mods m ON l.mod_id = m.id
-                JOIN commissioners c ON l.commissioner_id = c.id
             """)
         if path == "/api/divisions":
             return query("""
@@ -171,41 +170,42 @@ class Handler(SimpleHTTPRequestHandler):
             """)
         if path == "/api/submissions":
             return query("""
-                SELECT s.*, pol.name as policy_name, l.name as league_name,
-                       g.name as game_name, p.name as player_name, p.id as player_id,
-                       pred.name as pred_policy_name
+                SELECT s.*, pv.name as policy_version_name, l.name as league_name,
+                       g.name as game_name, p.name as player_name, p.id as player_id
                 FROM submissions s
-                JOIN policies pol ON s.policy_id = pol.id
-                JOIN players p ON pol.player_id = p.id
+                JOIN policy_versions pv ON s.policy_version_id = pv.id
+                JOIN players p ON pv.player_id = p.id
                 JOIN leagues l ON s.league_id = l.id
                 JOIN games g ON l.game_id = g.id
-                LEFT JOIN policies pred ON s.pred_policy_id = pred.id
                 ORDER BY s.timestamp DESC
             """)
-        if path == "/api/placements":
+        if path == "/api/division_entries":
             return query("""
-                SELECT pl.*, pol.name as policy_name, l.name as league_name,
-                       g.name as game_name, p.name as player_name, p.id as player_id,
+                SELECT de.*, pv.name as policy_version_name, l.name as league_name,
+                       g.name as game_name, p.name as player_name,
                        d.name as division_name, d.level as division_level
-                FROM placements pl
-                JOIN policies pol ON pl.policy_id = pol.id
-                JOIN players p ON pol.player_id = p.id
-                JOIN leagues l ON pl.league_id = l.id
+                FROM division_entries de
+                JOIN policy_versions pv ON de.policy_version_id = pv.id
+                JOIN players p ON de.player_id = p.id
+                JOIN leagues l ON de.league_id = l.id
                 JOIN games g ON l.game_id = g.id
-                LEFT JOIN divisions d ON pl.division_id = d.id
+                JOIN divisions d ON de.division_id = d.id
+                ORDER BY de.created_at DESC, de.id DESC
             """)
-        if path == "/api/placement_results":
+        if path == "/api/division_entry_events":
             return query("""
-                SELECT pr.*, p.id as placement_id,
-                       d.name as division_name, d.level as division_level,
-                       l.name as league_name, pol.name as policy_name,
-                       pl.name as player_name, pl.id as player_id
-                FROM placement_results pr
-                JOIN placements p ON pr.placement_id = p.id
-                JOIN divisions d ON pr.division_id = d.id
-                JOIN leagues l ON p.league_id = l.id
-                JOIN policies pol ON p.policy_id = pol.id
-                JOIN players pl ON pol.player_id = pl.id
+                SELECT dee.*, pv.name as policy_version_name,
+                       p.name as player_name,
+                       l.name as league_name,
+                       from_d.name as from_division_name, from_d.level as from_division_level,
+                       to_d.name as to_division_name, to_d.level as to_division_level
+                FROM division_entry_events dee
+                JOIN policy_versions pv ON dee.policy_version_id = pv.id
+                JOIN players p ON pv.player_id = p.id
+                JOIN leagues l ON dee.league_id = l.id
+                LEFT JOIN divisions from_d ON dee.from_division_id = from_d.id
+                JOIN divisions to_d ON dee.to_division_id = to_d.id
+                ORDER BY dee.created_at DESC, dee.id DESC
             """)
         if path == "/api/player_league_memberships":
             return query("""
@@ -233,15 +233,12 @@ class Handler(SimpleHTTPRequestHandler):
                 JOIN players p ON pr.player_id = p.id
                 ORDER BY su.created_at DESC
             """)
-        if path == "/api/experience_requests":
-            return query("""
-                SELECT er.*, u.name as user_name
-                FROM experience_requests er
-                JOIN users u ON er.user_id = u.id
-                ORDER BY er.created_at DESC
-            """)
         if path == "/api/variants":
-            return query("SELECT * FROM variants")
+            return query("""
+                SELECT v.*, g.name as game_name
+                FROM variants v
+                JOIN games g ON v.game_id = g.id
+            """)
         if path == "/api/mod_variants":
             return query("""
                 SELECT mv.*, m.name as mod_name, v.name as variant_name
@@ -256,10 +253,10 @@ class Handler(SimpleHTTPRequestHandler):
             """)
         if path == "/api/episode_policies":
             return query("""
-                SELECT ep.*, pol.name as policy_name, p.name as player_name, p.id as player_id
+                SELECT ep.*, pv.name as policy_version_name, p.name as player_name, p.id as player_id
                 FROM episode_policies ep
-                JOIN policies pol ON ep.policy_id = pol.id
-                JOIN players p ON pol.player_id = p.id
+                JOIN policy_versions pv ON ep.policy_version_id = pv.id
+                JOIN players p ON pv.player_id = p.id
             """)
         if path == "/api/episode_logs":
             return query("""
@@ -280,16 +277,19 @@ class Handler(SimpleHTTPRequestHandler):
             return query(RANK_USERS_SQL)
         if path == "/api/rank_players":
             return query(RANK_PLAYERS_SQL)
-        if path == "/api/rank_policies":
+        if path == "/api/round_results":
             return query("""
-                SELECT rp.*, pol.name as policy_name, l.name as league_name,
-                       d.name as division_name, p.name as player_name, p.id as player_id
-                FROM rank_policies rp
-                JOIN policies pol ON rp.policy_id = pol.id
-                JOIN players p ON pol.player_id = p.id
-                JOIN leagues l ON rp.league_id = l.id
-                LEFT JOIN divisions d ON rp.division_id = d.id
-                ORDER BY rp.league_id, rp.timestamp DESC, rp.rank
+                SELECT rr.*, pv.name as policy_version_name,
+                       p.name as player_name,
+                       r.division_id, d.name as division_name,
+                       l.name as league_name
+                FROM round_results rr
+                JOIN policy_versions pv ON rr.policy_version_id = pv.id
+                JOIN players p ON rr.player_id = p.id
+                JOIN rounds r ON rr.round_id = r.id
+                JOIN divisions d ON r.division_id = d.id
+                JOIN leagues l ON d.league_id = l.id
+                ORDER BY rr.round_id, rr.rank
             """)
         if path == "/api/round_episodes":
             return query("""
@@ -299,16 +299,38 @@ class Handler(SimpleHTTPRequestHandler):
                 JOIN rounds r ON re.round_id = r.id
                 JOIN episodes e ON re.episode_id = e.id
             """)
-        if path == "/api/division_policies":
+        if path == "/api/policy_pools":
             return query("""
-                SELECT dp.*,
-                       d.name as division_name,
-                       pol.name as policy_name,
-                       pl.name as player_name
-                FROM division_policies dp
-                JOIN divisions d ON dp.division_id = d.id
-                JOIN policies pol ON dp.policy_id = pol.id
-                JOIN players pl ON pol.player_id = pl.id
+                SELECT p.*, r.division_id, r.notes as round_notes,
+                       v.name as variant_name
+                FROM policy_pools p
+                JOIN rounds r ON p.round_id = r.id
+                LEFT JOIN variants v ON p.variant_id = v.id
+            """)
+        if path == "/api/policy_pool_entries":
+            return query("""
+                SELECT pe.*, pv.name as policy_version_name,
+                       pl.name as player_name,
+                       p.label as pool_label, p.pool_type
+                FROM policy_pool_entries pe
+                JOIN policy_versions pv ON pe.policy_version_id = pv.id
+                LEFT JOIN players pl ON pe.player_id = pl.id
+                JOIN policy_pools p ON pe.policy_pool_id = p.id
+            """)
+        if path == "/api/episode_requests":
+            return query("""
+                SELECT er.*, v.name as variant_name, u.name as requester_name
+                FROM episode_requests er
+                JOIN variants v ON er.variant_id = v.id
+                JOIN users u ON er.requester_user_id = u.id
+                ORDER BY er.created_at DESC
+            """)
+        if path == "/api/episode_request_policies":
+            return query("""
+                SELECT erp.*, pv.name as policy_version_name
+                FROM episode_request_policies erp
+                JOIN policy_versions pv ON erp.policy_version_id = pv.id
+                ORDER BY erp.episode_request_id, erp.position
             """)
         return None
 
@@ -348,31 +370,28 @@ class Handler(SimpleHTTPRequestHandler):
             )
             return {"id": pid}
 
-        # POST /api/players/:id/create_policy {name}
-        m = re.match(r"/api/players/(\d+)/create_policy", path)
+        # POST /api/players/:id/create_policy_version {name}
+        m = re.match(r"/api/players/(\d+)/create_policy_version", path)
         if m:
             player_id = int(m.group(1))
-            pol_id = mutate(
-                "INSERT INTO policies (player_id, name) VALUES (?, ?)",
+            pv_id = mutate(
+                "INSERT INTO policy_versions (player_id, name) VALUES (?, ?)",
                 (player_id, body["name"]),
             )
-            return {"id": pol_id}
+            return {"id": pv_id}
 
-        # POST /api/players/:id/submit {policy_id, league_id, notes?, pred_policy_id?, preferences?}
+        # POST /api/players/:id/submit {policy_version_id, league_id, notes?, preferences?}
         m = re.match(r"/api/players/(\d+)/submit", path)
         if m:
             player_id = int(m.group(1))
-            policy_id = body["policy_id"]
+            policy_version_id = body["policy_version_id"]
             league_id = body["league_id"]
             notes = body.get("notes", "")
-            pred_policy_id = body.get("pred_policy_id")
             preferences = json.dumps(body.get("preferences", {}))
-            # Create submission record
             sub_id = mutate(
-                "INSERT INTO submissions (policy_id, league_id, notes, pred_policy_id, preferences) VALUES (?, ?, ?, ?, ?)",
-                (policy_id, league_id, notes, pred_policy_id, preferences),
+                "INSERT INTO submissions (policy_version_id, league_id, notes, preferences) VALUES (?, ?, ?, ?)",
+                (policy_version_id, league_id, notes, preferences),
             )
-            # Ensure player_league_membership exists
             existing = query(
                 "SELECT * FROM player_league_memberships WHERE player_id=? AND league_id=?",
                 (player_id, league_id),
@@ -403,28 +422,62 @@ class Handler(SimpleHTTPRequestHandler):
                 conn.close()
                 return {"error": "division must belong to submission league"}
 
-            cur = conn.execute(
-                "INSERT INTO placements (policy_id, league_id, division_id, notes) VALUES (?, ?, ?, ?)",
-                (sub["policy_id"], sub["league_id"], division_id, f"From submission #{sub_id}"),
-            )
-            pl_id = cur.lastrowid
-            conn.execute(
-                "INSERT INTO placement_results (placement_id, division_id) VALUES (?, ?)",
-                (pl_id, division_id),
-            )
-            existing_membership = conn.execute(
-                "SELECT 1 FROM division_policies WHERE division_id=? AND policy_id=?",
-                (division_id, sub["policy_id"]),
-            ).fetchone()
-            if not existing_membership:
+            policy_version_id = sub["policy_version_id"]
+            league_id = sub["league_id"]
+
+            # Get player_id from policy_version
+            pv = conn.execute("SELECT player_id FROM policy_versions WHERE id=?", (policy_version_id,)).fetchone()
+            player_id = pv["player_id"] if pv else None
+
+            # Check for existing active entry in this league
+            existing_entry = conn.execute("""
+                SELECT de.id, de.division_id
+                FROM division_entries de
+                WHERE de.policy_version_id = ? AND de.league_id = ? AND de.is_active = 1
+                ORDER BY de.id DESC LIMIT 1
+            """, (policy_version_id, league_id)).fetchone()
+
+            from_division_id = existing_entry["division_id"] if existing_entry else None
+
+            if existing_entry and existing_entry["division_id"] != division_id:
+                # Deactivate old entry
                 conn.execute(
-                    "INSERT INTO division_policies (division_id, policy_id) VALUES (?, ?)",
-                    (division_id, sub["policy_id"]),
+                    "UPDATE division_entries SET is_active = 0 WHERE id = ?",
+                    (existing_entry["id"],),
                 )
-            conn.execute("UPDATE submissions SET status='placed' WHERE id=?", (sub_id,))
+
+            if not existing_entry or existing_entry["division_id"] != division_id:
+                # Create new division entry
+                cur = conn.execute(
+                    "INSERT INTO division_entries (policy_version_id, league_id, division_id, player_id) VALUES (?, ?, ?, ?)",
+                    (policy_version_id, league_id, division_id, player_id),
+                )
+                entry_id = cur.lastrowid
+            else:
+                entry_id = existing_entry["id"]
+
+            # Record event
+            if from_division_id != division_id:
+                conn.execute("""
+                    INSERT INTO division_entry_events (
+                        policy_version_id, league_id, player_id, from_division_id, to_division_id, division_entry_id, event_type, notes
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    policy_version_id,
+                    league_id,
+                    player_id,
+                    from_division_id,
+                    division_id,
+                    entry_id,
+                    "place" if from_division_id is None else "move",
+                    f"Recorded from submission #{sub_id}",
+                ))
+
+            # Link submission to entry and mark placed
+            conn.execute("UPDATE submissions SET status='placed', division_entry_id=? WHERE id=?", (entry_id, sub_id))
             conn.commit()
             conn.close()
-            return {"placement_id": pl_id}
+            return {"division_entry_id": entry_id}
 
         # POST /api/submissions/:id/reject {notes?}
         m = re.match(r"/api/submissions/(\d+)/reject", path)
